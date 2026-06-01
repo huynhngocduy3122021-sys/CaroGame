@@ -3,6 +3,7 @@ using System;
 using Unity.Netcode;
 
 
+
 public class GameManager : NetworkBehaviour
 {
     public static GameManager Instance { get; private set; }
@@ -20,18 +21,36 @@ public class GameManager : NetworkBehaviour
     public class OnGameWinEventArgs : EventArgs
     {
         public Vector2Int centerGridposition;
+        public Orientation orientation;
+        public PlayerType playerWinType;
     }
     public event EventHandler OnCurrentPlayerType;
+    public event EventHandler OnRematch;
+    public event EventHandler OnScoreChanged;
+    
     public enum PlayerType
     {
         None,
         Cross,
         Circle,
     }
+    public enum Orientation
+    {
+        Horizontal,
+        Vertical,
+        DiagonalA,
+        DiagonalB,
+    }
 
     private PlayerType localPlayerType; // xác định loại người chơi hiện tại (Cross hoặc Circle) dựa trên client ID của người chơi khi họ kết nối vào game, để đảm bảo rằng mỗi người chơi sẽ có một loại quân cờ riêng biệt và không bị trùng lặp với người chơi khác.
     private NetworkVariable<PlayerType> currentPlayerType = new NetworkVariable<PlayerType>(PlayerType.None , NetworkVariableReadPermission.Everyone , NetworkVariableWritePermission.Server); // sử dụng NetworkVariable để đồng bộ hóa trạng thái lượt chơi hiện tại giữa server và tất cả client, đảm bảo rằng mọi người chơi đều biết ai đang là người chơi hiện tại và có thể cập nhật giao diện người dùng hoặc thực hiện các hành động khác dựa trên thông tin này.
     private PlayerType[,] playerTypeArrray;// mảng 2 chiều để lưu trữ loại quân cờ (Cross hoặc Circle) đã được đặt ở mỗi vị trí trên bàn cờ, giúp theo dõi trạng thái của bàn cờ và xác định xem có ai đã thắng hay chưa dựa trên các quân cờ đã được đặt.
+    private int moveCount = 0;
+    private const int BOARD_WIDTH = 30;
+    private const int BOARD_HEIGHT = 18;
+
+    private NetworkVariable<int> playerCrossScore = new NetworkVariable<int>();
+    private NetworkVariable<int> playerCircleScore = new NetworkVariable<int>();
 
     private void Awake()
     {
@@ -45,7 +64,7 @@ public class GameManager : NetworkBehaviour
         playerTypeArrray = new PlayerType[30, 18];
     }
 
-    public override void OnNetworkSpawn()
+    public override void OnNetworkSpawn() // hàm này sẽ được gọi khi GameManager được spawn trên mạng, nó sẽ thiết lập loại người chơi cho mỗi client dựa trên client ID và đăng ký sự kiện để bắt đầu game khi đủ người chơi kết nối vào.
     {
        Debug.Log("GameManager spawned for client: " + NetworkManager.Singleton.LocalClientId);
        if(NetworkManager.Singleton.LocalClientId == 0)
@@ -64,9 +83,22 @@ public class GameManager : NetworkBehaviour
        currentPlayerType.OnValueChanged += (PlayerType oldPlayertype , PlayerType newPlayerType) => {
             OnCurrentPlayerType?.Invoke(this, EventArgs.Empty);
        };
+
+        playerCrossScore.OnValueChanged += (int oldScore , int newScore) =>
+        {
+            OnScoreChanged?.Invoke(this,EventArgs.Empty);
+        };
+        playerCircleScore.OnValueChanged += (int oldScore, int newScore) =>
+        {
+            OnScoreChanged?.Invoke(this, EventArgs.Empty);
+        };
+
+        OnScoreChanged?.Invoke(this, EventArgs.Empty);
+
+
     }
 
-    private void NetworkManager_OnClientConnectedCallback(ulong obj)
+    private void NetworkManager_OnClientConnectedCallback(ulong obj)// hàm này sẽ được gọi mỗi khi có một client mới kết nối vào game, nó sẽ kiểm tra xem đã đủ 2 người chơi kết nối chưa và nếu có thì phát event để bắt đầu game.
     {
         if(NetworkManager.Singleton.ConnectedClientsList.Count == 2) // khi có đủ 2 người chơi kết nối vào game thì phát event onGameStarted để bắt đầu game
         {
@@ -150,17 +182,130 @@ public class GameManager : NetworkBehaviour
             return;
         }
 
-        if(
-            checkLine(x, y, 1, 0, playerType) || // Kiểm tra hàng ngang
-            checkLine(x, y, 0, 1, playerType) || // Kiểm tra hàng dọc
-            checkLine(x, y, 1, 1, playerType) || // Kiểm tra đường chéo chính
-            checkLine(x, y, 1, -1, playerType)   // Kiểm tra đường chéo phụ
-        )
+        if(checkLine(x, y, 1, 0, playerType)) // Kiểm tra hàng ngang
         {
-            Debug.Log(playerType + " wins!");
-            currentPlayerType.Value = PlayerType.None; // Đặt lượt chơi về None để kết thúc game
-            OnGameWin?.Invoke(this, new OnGameWinEventArgs { centerGridposition = new Vector2Int(x, y) });
+            win(GetWinCenter(x, y, 1, 0, playerType), Orientation.Horizontal);
+            
+        } else if(checkLine(x, y, 0, 1, playerType)) // Kiểm tra hàng dọc
+        {
+            win(GetWinCenter(x, y, 0, 1, playerType), Orientation.Vertical);
         }
+        else if(checkLine(x, y, 1, 1, playerType)) // Kiểm tra đường chéo chính
+        {
+            win(GetWinCenter(x, y, 1, 1, playerType), Orientation.DiagonalA);
+        }
+        else if(checkLine(x, y, 1, -1, playerType)) // Kiểm tra đường chéo phụ
+        {
+            win(GetWinCenter(x, y, 1, -1, playerType), Orientation.DiagonalB);
+        }   
+        checkDraw();
+    }
+    private void win(Vector2Int centerPos, Orientation orientation)
+    {
+         
+
+            PlayerType winnerType = playerTypeArrray[centerPos.x , centerPos.y];
+            switch (winnerType)
+        {
+            case PlayerType.Cross:
+                playerCrossScore.Value++;
+                break;
+            case PlayerType.Circle:
+                playerCircleScore.Value++;
+                break;
+        }
+
+            currentPlayerType.Value = PlayerType.None; // Đặt lượt chơi về None để kết thúc game
+            TriggerOnGameWinRpc(centerPos, orientation); // Phát event để thông báo cho các client khác về việc có người chơi đã thắng và vị trí trung tâm của đường thắng cùng với hướng của đường thắng
+           
+    }
+    private void checkDraw()
+{
+    if (moveCount >= BOARD_WIDTH * BOARD_HEIGHT)
+    {
+        Debug.Log("Draw!");
+
+        currentPlayerType.Value = PlayerType.None;
+
+        TriggerOnGameStartedRpc();
+    }
+}
+    [Rpc(SendTo.ClientsAndHost)]
+    private void TriggerOnGameWinRpc(Vector2Int centerPos, Orientation orientation)
+    {
+         OnGameWin?.Invoke(this, new OnGameWinEventArgs { 
+                centerGridposition = centerPos,
+                orientation = orientation,
+                playerWinType = playerTypeArrray[centerPos.x, centerPos.y]
+                 });
+    }
+   private Vector2Int GetWinCenter(int x, int y, int dirX, int dirY, PlayerType playerType)
+{
+    int minX = x;
+    int minY = y;
+    int maxX = x;
+    int maxY = y;
+
+    // Đi về một phía
+    int checkX = x + dirX;
+    int checkY = y + dirY;
+
+    while (
+        checkX >= 0 &&
+        checkX < 30 &&
+        checkY >= 0 &&
+        checkY < 18 &&
+        playerTypeArrray[checkX, checkY] == playerType
+    )
+    {
+        maxX = checkX;
+        maxY = checkY;
+
+        checkX += dirX;
+        checkY += dirY;
+    }
+
+    // Đi về phía ngược lại
+    checkX = x - dirX;
+    checkY = y - dirY;
+
+    while (
+        checkX >= 0 &&
+        checkX < 30 &&
+        checkY >= 0 &&
+        checkY < 18 &&
+        playerTypeArrray[checkX, checkY] == playerType
+    )
+    {
+        minX = checkX;
+        minY = checkY;
+
+        checkX -= dirX;
+        checkY -= dirY;
+    }
+
+    return new Vector2Int( 
+        (minX + maxX) / 2,
+        (minY + maxY) / 2
+    );
+}
+[Rpc(SendTo.Server)]
+public void RematchRpc()
+    {
+        for(int x = 0 ; x < playerTypeArrray.GetLength(0) ; x++)
+        {
+            for(int y = 0 ; y < playerTypeArrray.GetLength(1) ; y++)
+            {
+                playerTypeArrray[x, y] = PlayerType.None;
+            }
+        }
+        currentPlayerType.Value = PlayerType.Cross; // Đặt lượt chơi đầu tiên là Cross
+        TriggerOnRematchRpc();
+    }
+    [Rpc(SendTo.ClientsAndHost)]
+    private void TriggerOnRematchRpc()
+    {
+        OnRematch?.Invoke(this, EventArgs.Empty);
     }
  
     public PlayerType GetLocalPlayerType()
@@ -170,5 +315,13 @@ public class GameManager : NetworkBehaviour
     public PlayerType GetCurrentPlayerType()
     {
         return currentPlayerType.Value;
+    }
+    public int getCrossScore()
+    {
+        return playerCrossScore.Value;
+    }
+    public int getCircleScore()
+    {
+        return playerCircleScore.Value;
     }
 }
