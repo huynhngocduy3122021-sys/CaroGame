@@ -1,5 +1,6 @@
 using UnityEngine;
 using Unity.Netcode;
+using System.Collections.Generic;
 
 public class GameVisualManager : NetworkBehaviour
 {
@@ -14,18 +15,76 @@ public class GameVisualManager : NetworkBehaviour
     [SerializeField] private float cameraSize = 7.5f;
     [SerializeField] private float topUiRatio = 0.1f;
     
+    private List<GameObject> visualGameObjectList = new List<GameObject>();
+    private void Awake()
+    {
+        visualGameObjectList = new List<GameObject>();
+    }
 
     private void Start()
     {
        GameManager.Instance.OnGripPositionClicked += GameManager_OnGripPositionClicked;
        GameManager.Instance.OnGameWin += GameManager_OnGameWin;
+       GameManager.Instance.OnRematch += GameManager_OnRematch;
+    }
+    private void GameManager_OnRematch(object sender, System.EventArgs e)
+    {
+        if(!NetworkManager.Singleton.IsServer)
+        {
+            return;
+         }
+        foreach (GameObject visualGameOBJ in visualGameObjectList)
+        {
+                if (visualGameOBJ == null) continue;
+
+                NetworkObject networkObject = visualGameOBJ.GetComponent<NetworkObject>();
+
+                if (networkObject != null && networkObject.IsSpawned)
+                {
+                    networkObject.Despawn(true);
+                }
+                else
+                {
+                    Destroy(visualGameOBJ);
+                }
+        }
+        visualGameObjectList.Clear();
     }
     private void GameManager_OnGameWin(object sender, GameManager.OnGameWinEventArgs e)
     {
        
-       Transform lineCompleteTransform = Instantiate(linCompletePrefab, GetGripPosition(e.centerGridposition.x, e.centerGridposition.y), Quaternion.identity);
-         lineCompleteTransform.GetComponent<NetworkObject>().Spawn(true);
+                    if (!IsServer)
+                {
+                    return;
+                }
+
+                Transform lineTransform = Instantiate(
+                    linCompletePrefab,
+                    GetGripPosition(e.centerGridposition.x, e.centerGridposition.y),
+                    GetWinLineRotation(e.orientation)
+                );
+
+                lineTransform.GetComponent<NetworkObject>().Spawn(true);
+
+                visualGameObjectList.Add(lineTransform.gameObject);
       
+    }
+    private Quaternion GetWinLineRotation(GameManager.Orientation orientation)
+    {
+        switch(orientation)
+        {
+            case GameManager.Orientation.Horizontal:
+                return Quaternion.Euler(0, 0, 0);
+            case GameManager.Orientation.Vertical:
+                return Quaternion.Euler(0, 0, 90);
+            case GameManager.Orientation.DiagonalA:
+                return Quaternion.Euler(0, 0, 45);
+            case GameManager.Orientation.DiagonalB:
+                return Quaternion.Euler(0, 0, -45);
+            default:
+                Debug.LogError("Invalid orientation");
+                return Quaternion.identity;
+        }
     }
     private void GameManager_OnGripPositionClicked(object sender, GameManager.OnGripPositionClickedEventArgs e)
     {
@@ -53,6 +112,7 @@ public class GameVisualManager : NetworkBehaviour
         }
         Transform instantiatedPrefab = Instantiate(preFabs , GetGripPosition(x, y), Quaternion.identity);
         instantiatedPrefab.GetComponent<NetworkObject>().Spawn(true);
+        visualGameObjectList.Add(instantiatedPrefab.gameObject);
         
     }
     private Vector2 GetGripPosition(int x, int y) // lấy vị trí grip dựa trên x, y và các thông số của board để tính toán vị trí chính xác
