@@ -7,7 +7,15 @@
 [Uu]ser[Ss]ettings/
 
 .vs/
+.vscode/
 .idea/
+
+venv/
+results/
+
+*.pt
+*.onnx
+
 *.csproj
 *.sln
 *.user
