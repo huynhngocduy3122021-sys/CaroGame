@@ -11,9 +11,8 @@
 .idea/
 
 venv/
-results/
 
-*.pt
+
 *.onnx
 
 *.csproj
