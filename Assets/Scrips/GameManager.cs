@@ -130,6 +130,7 @@ public class GameManager : NetworkBehaviour
             }
 
             playerTypeArrray[x, y] = playerType; // cập nhật mảng để đánh dấu vị trí đã được đặt quân cờ
+            moveCount++;
         OnGripPositionClicked?.Invoke(this, new OnGripPositionClickedEventArgs {
              x = x, y = y, playerType = playerType });
 
@@ -198,7 +199,10 @@ public class GameManager : NetworkBehaviour
         {
             win(GetWinCenter(x, y, 1, -1, playerType), Orientation.DiagonalB);
         }   
-        checkDraw();
+        else
+        {
+            checkDraw();
+        }
     }
     private void win(Vector2Int centerPos, Orientation orientation)
     {
@@ -216,7 +220,7 @@ public class GameManager : NetworkBehaviour
         }
 
             currentPlayerType.Value = PlayerType.None; // Đặt lượt chơi về None để kết thúc game
-            TriggerOnGameWinRpc(centerPos, orientation); // Phát event để thông báo cho các client khác về việc có người chơi đã thắng và vị trí trung tâm của đường thắng cùng với hướng của đường thắng
+            TriggerOnGameWinRpc(centerPos, orientation, winnerType); // Phát event để thông báo cho các client khác về việc có người chơi đã thắng và vị trí trung tâm của đường thắng cùng với hướng của đường thắng
            
     }
     private void checkDraw()
@@ -227,16 +231,16 @@ public class GameManager : NetworkBehaviour
 
         currentPlayerType.Value = PlayerType.None;
 
-        TriggerOnGameStartedRpc();
+        TriggerOnGameWinRpc(Vector2Int.zero, Orientation.Horizontal, PlayerType.None);
     }
 }
     [Rpc(SendTo.ClientsAndHost)]
-    private void TriggerOnGameWinRpc(Vector2Int centerPos, Orientation orientation)
+    private void TriggerOnGameWinRpc(Vector2Int centerPos, Orientation orientation, PlayerType playerWinType)
     {
          OnGameWin?.Invoke(this, new OnGameWinEventArgs { 
                 centerGridposition = centerPos,
                 orientation = orientation,
-                playerWinType = playerTypeArrray[centerPos.x, centerPos.y]
+                playerWinType = playerWinType
                  });
     }
    private Vector2Int GetWinCenter(int x, int y, int dirX, int dirY, PlayerType playerType)
@@ -299,6 +303,7 @@ public void RematchRpc()
                 playerTypeArrray[x, y] = PlayerType.None;
             }
         }
+        moveCount = 0;
         currentPlayerType.Value = PlayerType.Cross; // Đặt lượt chơi đầu tiên là Cross
         TriggerOnRematchRpc();
     }

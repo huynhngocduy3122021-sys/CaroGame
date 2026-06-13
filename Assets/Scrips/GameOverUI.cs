@@ -29,8 +29,12 @@ public class GameOverUI : MonoBehaviour
     }
     private void GameManager_OnGameWin(object sender, GameManager.OnGameWinEventArgs e)
     {
-
-        if(e.playerWinType == GameManager.Instance.GetLocalPlayerType())
+        if(e.playerWinType == GameManager.PlayerType.None)
+        {
+            text.text = "DRAWS";
+            text.color = drawsColor;
+        }
+        else if(e.playerWinType == GameManager.Instance.GetLocalPlayerType())
         {
             text.text = "You Win!";
             text.color = winColor;
@@ -40,12 +44,7 @@ public class GameOverUI : MonoBehaviour
             text.text = "You Lose!";
             text.color = loseColor;
         }
-
-        if(e.playerWinType == GameManager.PlayerType.None)
-        {
-            text.text = "DRAWS";
-            text.color = drawsColor;
-        }
+        
         show();
     }
     
