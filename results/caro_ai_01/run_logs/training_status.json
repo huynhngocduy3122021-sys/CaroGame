@@ -2,6 +2,37 @@
     "metadata": {
         "stats_format_version": "0.3.0",
         "mlagents_version": "1.1.0",
-        "torch_version": "2.12.0+cpu"
+        "torch_version": "2.2.2+cpu"
+    },
+    "CaroAgent": {
+        "checkpoints": [
+            {
+                "steps": 499996,
+                "file_path": "results\\caro_ai_01\\CaroAgent\\CaroAgent-499996.onnx",
+                "reward": null,
+                "creation_time": 1780970579.3360715,
+                "auxillary_file_paths": [
+                    "results\\caro_ai_01\\CaroAgent\\CaroAgent-499996.pt"
+                ]
+            },
+            {
+                "steps": 545595,
+                "file_path": "results\\caro_ai_01\\CaroAgent\\CaroAgent-545595.onnx",
+                "reward": -0.2655392175211626,
+                "creation_time": 1780970834.164987,
+                "auxillary_file_paths": [
+                    "results\\caro_ai_01\\CaroAgent\\CaroAgent-545595.pt"
+                ]
+            }
+        ],
+        "final_checkpoint": {
+            "steps": 545595,
+            "file_path": "results\\caro_ai_01\\CaroAgent.onnx",
+            "reward": -0.2655392175211626,
+            "creation_time": 1780970834.164987,
+            "auxillary_file_paths": [
+                "results\\caro_ai_01\\CaroAgent\\CaroAgent-545595.pt"
+            ]
+        }
     }
 }

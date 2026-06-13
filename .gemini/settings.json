@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "ai-game-developer": {
+      "url": "http://localhost:24519",
+      "type": "http"
+    }
+  }
+}
