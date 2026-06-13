@@ -27,3 +27,4 @@ venv/
 *.apk
 *.aab
 *.unitypackage
+.claude/
