@@ -52,21 +52,34 @@ public class GameVisualManager : NetworkBehaviour
     }
     private void GameManager_OnGameWin(object sender, GameManager.OnGameWinEventArgs e)
     {
-       
-                    if (!IsServer)
-                {
-                    return;
-                }
+        if (!IsServer || e.playerWinType == GameManager.PlayerType.None)
+        {
+            return;
+        }
 
-                Transform lineTransform = Instantiate(
-                    linCompletePrefab,
-                    GetGripPosition(e.centerGridposition.x, e.centerGridposition.y),
-                    GetWinLineRotation(e.orientation)
-                );
+        Transform lineTransform = Instantiate(
+            linCompletePrefab,
+            GetGripPosition(e.centerGridposition.x, e.centerGridposition.y),
+            GetWinLineRotation(e.orientation)
+        );
 
-                lineTransform.GetComponent<NetworkObject>().Spawn(true);
+        SpriteRenderer lineRenderer = lineTransform.GetComponent<SpriteRenderer>();
+        if (lineRenderer != null)
+        {
+            lineRenderer.sortingOrder = 3;
+        }
 
-                visualGameObjectList.Add(lineTransform.gameObject);
+        NetworkObject networkObject = lineTransform.GetComponent<NetworkObject>();
+        if (networkObject == null)
+        {
+            Debug.LogError($"Prefab {linCompletePrefab.name} is missing NetworkObject.");
+            Destroy(lineTransform.gameObject);
+            return;
+        }
+
+        networkObject.Spawn(true);
+
+        visualGameObjectList.Add(lineTransform.gameObject);
       
     }
     private Quaternion GetWinLineRotation(GameManager.Orientation orientation)
@@ -89,13 +102,17 @@ public class GameVisualManager : NetworkBehaviour
     private void GameManager_OnGripPositionClicked(object sender, GameManager.OnGripPositionClickedEventArgs e)
     {
         Debug.Log("GameManager_OnGripPositionClicked:" + e.x + ", " + e.y);
-       SpawObjectRpc(e.x, e.y , e.playerType);
+        if (!IsServer)
+        {
+            return;
+        }
+
+        SpawnObject(e.x, e.y, e.playerType);
     }
 
-    [Rpc(SendTo.Server)] // Nói đơn giản là Remote Procedure Call là cách mà Client và server gọi hàm từ xa qua mạng
-    private void SpawObjectRpc(int x, int y , GameManager.PlayerType playerType ) // hàm này sẽ được gọi từ client và thực thi trên server để tạo ra đối tượng quân cờ tương ứng với người chơi đã click vào vị trí trên bàn cờ
+    private void SpawnObject(int x, int y, GameManager.PlayerType playerType)
     {
-        Debug.Log("SpawObject:" + x + ", " + y);
+        Debug.Log("SpawnObject:" + x + ", " + y);
         Transform preFabs;
         switch(playerType)
         {
@@ -111,7 +128,15 @@ public class GameVisualManager : NetworkBehaviour
                 return;
         }
         Transform instantiatedPrefab = Instantiate(preFabs , GetGripPosition(x, y), Quaternion.identity);
-        instantiatedPrefab.GetComponent<NetworkObject>().Spawn(true);
+        NetworkObject networkObject = instantiatedPrefab.GetComponent<NetworkObject>();
+        if (networkObject == null)
+        {
+            Debug.LogError($"Prefab {preFabs.name} is missing NetworkObject.");
+            Destroy(instantiatedPrefab.gameObject);
+            return;
+        }
+
+        networkObject.Spawn(true);
         visualGameObjectList.Add(instantiatedPrefab.gameObject);
         
     }
