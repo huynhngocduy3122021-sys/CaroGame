@@ -46,8 +46,10 @@ public class GameManager : NetworkBehaviour
     private NetworkVariable<PlayerType> currentPlayerType = new NetworkVariable<PlayerType>(PlayerType.None , NetworkVariableReadPermission.Everyone , NetworkVariableWritePermission.Server); // sử dụng NetworkVariable để đồng bộ hóa trạng thái lượt chơi hiện tại giữa server và tất cả client, đảm bảo rằng mọi người chơi đều biết ai đang là người chơi hiện tại và có thể cập nhật giao diện người dùng hoặc thực hiện các hành động khác dựa trên thông tin này.
     private PlayerType[,] playerTypeArrray;// mảng 2 chiều để lưu trữ loại quân cờ (Cross hoặc Circle) đã được đặt ở mỗi vị trí trên bàn cờ, giúp theo dõi trạng thái của bàn cờ và xác định xem có ai đã thắng hay chưa dựa trên các quân cờ đã được đặt.
     private int moveCount = 0;
-    private const int BOARD_WIDTH = 30;
-    private const int BOARD_HEIGHT = 18;
+    private const int BOARD_WIDTH = 31;
+    private const int BOARD_HEIGHT = 19;
+    private ulong circleClientId = ulong.MaxValue;
+    private bool isAIGame;
 
     private NetworkVariable<int> playerCrossScore = new NetworkVariable<int>();
     private NetworkVariable<int> playerCircleScore = new NetworkVariable<int>();
@@ -56,12 +58,13 @@ public class GameManager : NetworkBehaviour
     {
         if (Instance != null)
         {
-            Debug.Log("Duplicate GameManager found. Destroying the new one.");        
-            
+            Debug.LogWarning("Duplicate GameManager found. Destroying the new one.");
+            Destroy(gameObject);
+            return;
         }
         Instance = this;
 
-        playerTypeArrray = new PlayerType[30, 18];
+        playerTypeArrray = new PlayerType[BOARD_WIDTH, BOARD_HEIGHT];
     }
 
     public override void OnNetworkSpawn() // hàm này sẽ được gọi khi GameManager được spawn trên mạng, nó sẽ thiết lập loại người chơi cho mỗi client dựa trên client ID và đăng ký sự kiện để bắt đầu game khi đủ người chơi kết nối vào.
@@ -79,6 +82,7 @@ public class GameManager : NetworkBehaviour
        if(IsServer)
        {
             NetworkManager.Singleton.OnClientConnectedCallback += NetworkManager_OnClientConnectedCallback;
+            TryStartGame();
        }
        currentPlayerType.OnValueChanged += (PlayerType oldPlayertype , PlayerType newPlayerType) => {
             OnCurrentPlayerType?.Invoke(this, EventArgs.Empty);
@@ -98,39 +102,96 @@ public class GameManager : NetworkBehaviour
 
     }
 
+    public override void OnNetworkDespawn()
+    {
+        if (IsServer && NetworkManager.Singleton != null)
+        {
+            NetworkManager.Singleton.OnClientConnectedCallback -= NetworkManager_OnClientConnectedCallback;
+        }
+
+        if (Instance == this)
+        {
+            Instance = null;
+        }
+    }
+
     private void NetworkManager_OnClientConnectedCallback(ulong obj)// hàm này sẽ được gọi mỗi khi có một client mới kết nối vào game, nó sẽ kiểm tra xem đã đủ 2 người chơi kết nối chưa và nếu có thì phát event để bắt đầu game.
     {
-        if(NetworkManager.Singleton.ConnectedClientsList.Count == 2) // khi có đủ 2 người chơi kết nối vào game thì phát event onGameStarted để bắt đầu game
+        TryStartGame();
+    }
+
+    private void TryStartGame()
+    {
+        if (isAIGame)
         {
-            // stated game
-            currentPlayerType.Value = PlayerType.Cross; // đặt lượt chơi đầu tiên là Cross
-            TriggerOnGameStartedRpc();
+            return;
         }
+
+        if (NetworkManager.Singleton.ConnectedClientsList.Count != 2)
+        {
+            return;
+        }
+
+        foreach (var client in NetworkManager.Singleton.ConnectedClientsList)
+        {
+            if (client.ClientId != NetworkManager.ServerClientId)
+            {
+                circleClientId = client.ClientId;
+                break;
+            }
+        }
+
+        currentPlayerType.Value = PlayerType.Cross;
+        TriggerOnGameStartedRpc();
     }
     [Rpc(SendTo.ClientsAndHost)]
     private void TriggerOnGameStartedRpc()
     {
          OnGameStarted?.Invoke(this, EventArgs.Empty);
     }
-    [Rpc(SendTo.Server)] // hàm này sẽ được gọi từ client và thực thi trên server để xử lý logic liên quan đến việc click vào điểm trên bàn cờ, sau đó phát event để các client khác có thể cập nhật giao diện tương ứng
-    public void clickedOnGripPositionRpc(int x , int y , PlayerType playerType)
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)] // hàm này sẽ được gọi từ client và thực thi trên server để xử lý logic liên quan đến việc click vào điểm trên bàn cờ, sau đó phát event để các client khác có thể cập nhật giao diện tương ứng
+    public void clickedOnGripPositionRpc(int x, int y, RpcParams rpcParams = default)
 
     {
         Debug.Log("clickedOnGripPosition:" + x + ", " + y);
-        if(playerType != currentPlayerType.Value)
+        if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_HEIGHT)
         {
-            Debug.Log("It's not your turn!");
+            Debug.LogWarning($"Rejected out-of-range move ({x}, {y}).");
             return;
         }
 
-            if(playerTypeArrray[x, y] != PlayerType.None)
-            {
-                Debug.Log("This position is already occupied!");
-                return;
-            }
+        PlayerType playerType = GetPlayerTypeForClient(rpcParams.Receive.SenderClientId);
+        if (playerType == PlayerType.None)
+        {
+            Debug.LogWarning($"Rejected move from unassigned client {rpcParams.Receive.SenderClientId}.");
+            return;
+        }
 
-            playerTypeArrray[x, y] = playerType; // cập nhật mảng để đánh dấu vị trí đã được đặt quân cờ
-            moveCount++;
+        TryPlaceMove(x, y, playerType);
+    }
+
+    private bool TryPlaceMove(int x, int y, PlayerType playerType)
+    {
+        if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_HEIGHT)
+        {
+            Debug.LogWarning($"Rejected out-of-range move ({x}, {y}).");
+            return false;
+        }
+
+        if(playerType != currentPlayerType.Value)
+        {
+            Debug.Log("It's not your turn!");
+            return false;
+        }
+
+        if(playerTypeArrray[x, y] != PlayerType.None)
+        {
+            Debug.Log("This position is already occupied!");
+            return false;
+        }
+
+        playerTypeArrray[x, y] = playerType;
+        moveCount++;
         OnGripPositionClicked?.Invoke(this, new OnGripPositionClickedEventArgs {
              x = x, y = y, playerType = playerType });
 
@@ -145,7 +206,8 @@ public class GameManager : NetworkBehaviour
                 break;
         }
         testWinner(x, y); // kiểm tra xem sau khi đặt quân cờ vào vị trí (x, y) thì có người chơi nào thắng hay không
-     
+
+        return true;
     }
    private bool checkLine(int x , int y ,int dirX , int dirY ,PlayerType playerType)
     {
@@ -163,9 +225,9 @@ public class GameManager : NetworkBehaviour
 
         while(
             checkX >= 0 &&
-            checkX < 30 &&
+            checkX < BOARD_WIDTH &&
             checkY >= 0 &&
-            checkY < 18 &&
+            checkY < BOARD_HEIGHT &&
             playerTypeArrray[checkX, checkY] == playerType
         )
         {
@@ -256,9 +318,9 @@ public class GameManager : NetworkBehaviour
 
     while (
         checkX >= 0 &&
-        checkX < 30 &&
+        checkX < BOARD_WIDTH &&
         checkY >= 0 &&
-        checkY < 18 &&
+        checkY < BOARD_HEIGHT &&
         playerTypeArrray[checkX, checkY] == playerType
     )
     {
@@ -275,9 +337,9 @@ public class GameManager : NetworkBehaviour
 
     while (
         checkX >= 0 &&
-        checkX < 30 &&
+        checkX < BOARD_WIDTH &&
         checkY >= 0 &&
-        checkY < 18 &&
+        checkY < BOARD_HEIGHT &&
         playerTypeArrray[checkX, checkY] == playerType
     )
     {
@@ -293,9 +355,15 @@ public class GameManager : NetworkBehaviour
         (minY + maxY) / 2
     );
 }
-[Rpc(SendTo.Server)]
-public void RematchRpc()
+[Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+public void RematchRpc(RpcParams rpcParams = default)
     {
+        if (GetPlayerTypeForClient(rpcParams.Receive.SenderClientId) == PlayerType.None)
+        {
+            Debug.LogWarning($"Rejected rematch request from unassigned client {rpcParams.Receive.SenderClientId}.");
+            return;
+        }
+
         for(int x = 0 ; x < playerTypeArrray.GetLength(0) ; x++)
         {
             for(int y = 0 ; y < playerTypeArrray.GetLength(1) ; y++)
@@ -328,5 +396,50 @@ public void RematchRpc()
     public int getCircleScore()
     {
         return playerCircleScore.Value;
+    }
+
+    public void StartAIGame()
+    {
+        if (!IsServer)
+        {
+            Debug.LogError("Only the server can start an AI game.");
+            return;
+        }
+
+        isAIGame = true;
+        circleClientId = ulong.MaxValue;
+        localPlayerType = PlayerType.Cross;
+        currentPlayerType.Value = PlayerType.Cross;
+        TriggerOnGameStartedRpc();
+    }
+
+    public bool TryPlaceAIMove(int x, int y)
+    {
+        if (!IsServer || !isAIGame)
+        {
+            return false;
+        }
+
+        return TryPlaceMove(x, y, PlayerType.Circle);
+    }
+
+    public bool IsAIGame()
+    {
+        return isAIGame;
+    }
+
+    private PlayerType GetPlayerTypeForClient(ulong clientId)
+    {
+        if (clientId == NetworkManager.ServerClientId)
+        {
+            return PlayerType.Cross;
+        }
+
+        if (clientId == circleClientId)
+        {
+            return PlayerType.Circle;
+        }
+
+        return PlayerType.None;
     }
 }
