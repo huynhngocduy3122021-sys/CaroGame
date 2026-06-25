@@ -2,17 +2,15 @@ using UnityEngine;
 using System;
 using Unity.Netcode;
 
-
-
 public class GameManager : NetworkBehaviour
 {
     public static GameManager Instance { get; private set; }
 
-    // tạo 1 cái event để phát tham số x và y khi có 1 điểm bị click
+    // Tạo 1 cái event để phát tham số x và y khi có 1 điểm bị click
     public event EventHandler<OnGripPositionClickedEventArgs> OnGripPositionClicked;
     public class OnGripPositionClickedEventArgs : EventArgs // EventArgs là class chứa dữ liệu của event, ở đây mình tạo 1 class con để chứa x và y
     {
-         public int x;
+        public int x;
         public int y;
         public PlayerType playerType;
     }
@@ -27,12 +25,16 @@ public class GameManager : NetworkBehaviour
     public event EventHandler OnCurrentPlayerType;
     public event EventHandler OnRematch;
     public event EventHandler OnScoreChanged;
-    
+    public event EventHandler OnGameReturnedToLobby;
+
+    // Event thông báo khi danh sách người chơi trong Lobby thay đổi (dùng cho UI Lobby)
+    public event EventHandler OnLobbyPlayersChanged;
+
     public enum PlayerType
     {
-        None,
-        Cross,
-        Circle,
+        None,        // Được dùng làm Khán giả (Spectator / View)
+        Cross,       // Người chơi 1
+        Circle,      // Người chơi 2
     }
     public enum Orientation
     {
@@ -42,9 +44,9 @@ public class GameManager : NetworkBehaviour
         DiagonalB,
     }
 
-    private PlayerType localPlayerType; // xác định loại người chơi hiện tại (Cross hoặc Circle) dựa trên client ID của người chơi khi họ kết nối vào game, để đảm bảo rằng mỗi người chơi sẽ có một loại quân cờ riêng biệt và không bị trùng lặp với người chơi khác.
-    private NetworkVariable<PlayerType> currentPlayerType = new NetworkVariable<PlayerType>(PlayerType.None , NetworkVariableReadPermission.Everyone , NetworkVariableWritePermission.Server); // sử dụng NetworkVariable để đồng bộ hóa trạng thái lượt chơi hiện tại giữa server và tất cả client, đảm bảo rằng mọi người chơi đều biết ai đang là người chơi hiện tại và có thể cập nhật giao diện người dùng hoặc thực hiện các hành động khác dựa trên thông tin này.
-    private PlayerType[,] playerTypeArrray;// mảng 2 chiều để lưu trữ loại quân cờ (Cross hoặc Circle) đã được đặt ở mỗi vị trí trên bàn cờ, giúp theo dõi trạng thái của bàn cờ và xác định xem có ai đã thắng hay chưa dựa trên các quân cờ đã được đặt.
+    private PlayerType localPlayerType = PlayerType.None; // Xác định loại người chơi hiện tại của Client này
+    private NetworkVariable<PlayerType> currentPlayerType = new NetworkVariable<PlayerType>(PlayerType.None, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server); // Đồng bộ hóa trạng thái lượt chơi hiện tại
+    private PlayerType[,] playerTypeArrray; // Mảng 2 chiều lưu trữ trạng thái bàn cờ
     private int moveCount = 0;
     private const int BOARD_WIDTH = 30;
     private const int BOARD_HEIGHT = 18;
@@ -52,90 +54,198 @@ public class GameManager : NetworkBehaviour
     private NetworkVariable<int> playerCrossScore = new NetworkVariable<int>();
     private NetworkVariable<int> playerCircleScore = new NetworkVariable<int>();
 
+    // Biến mạng kiểm tra xem Game đã bắt đầu từ Lobby hay chưa
+    private NetworkVariable<bool> isGameStarted = new NetworkVariable<bool>(false);
+    private NetworkVariable<int> lobbyPlayerCount = new NetworkVariable<int>(0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
     private void Awake()
     {
-        if (Instance != null)
-        {
-            Debug.Log("Duplicate GameManager found. Destroying the new one.");        
-            
-        }
         Instance = this;
-
-        playerTypeArrray = new PlayerType[30, 18];
+        playerTypeArrray = new PlayerType[BOARD_WIDTH + 1, BOARD_HEIGHT + 1];
     }
 
-    public override void OnNetworkSpawn() // hàm này sẽ được gọi khi GameManager được spawn trên mạng, nó sẽ thiết lập loại người chơi cho mỗi client dựa trên client ID và đăng ký sự kiện để bắt đầu game khi đủ người chơi kết nối vào.
+    public override void OnNetworkSpawn() // Hàm này sẽ được gọi khi GameManager được spawn trên mạng
     {
-       Debug.Log("GameManager spawned for client: " + NetworkManager.Singleton.LocalClientId);
-       if(NetworkManager.Singleton.LocalClientId == 0)
-       {
-            localPlayerType = PlayerType.Cross;
-       }
-       else
-       {
-            localPlayerType = PlayerType.Circle;
-       }
+        Debug.Log("GameManager spawned for client: " + NetworkManager.Singleton.LocalClientId);
 
-       if(IsServer)
-       {
-            NetworkManager.Singleton.OnClientConnectedCallback += NetworkManager_OnClientConnectedCallback;
-       }
-       currentPlayerType.OnValueChanged += (PlayerType oldPlayertype , PlayerType newPlayerType) => {
-            OnCurrentPlayerType?.Invoke(this, EventArgs.Empty);
-       };
+        if (IsServer)
+        {
+            NetworkManager.Singleton.OnClientConnectedCallback += Server_OnClientConnectedCallback;
+            NetworkManager.Singleton.OnClientDisconnectCallback += Server_OnClientDisconnectedCallback;
 
-        playerCrossScore.OnValueChanged += (int oldScore , int newScore) =>
-        {
-            OnScoreChanged?.Invoke(this,EventArgs.Empty);
-        };
-        playerCircleScore.OnValueChanged += (int oldScore, int newScore) =>
-        {
-            OnScoreChanged?.Invoke(this, EventArgs.Empty);
-        };
+            // Host (ClientId = 0) mặc định luôn là Cross
+            AssignPlayerTypeRpc(NetworkManager.Singleton.LocalClientId, PlayerType.Cross);
+            RefreshLobbyPlayerCount();
+        }
+
+        lobbyPlayerCount.OnValueChanged += LobbyPlayerCount_OnValueChanged;
+
+        currentPlayerType.OnValueChanged += CurrentPlayerType_OnValueChanged;
+
+        playerCrossScore.OnValueChanged += Score_OnValueChanged;
+        playerCircleScore.OnValueChanged += Score_OnValueChanged;
+
+        // Lắng nghe biến isGameStarted đổi màu/trạng thái để kích hoạt hiển thị bàn cờ trên tất cả các máy
+        isGameStarted.OnValueChanged += IsGameStarted_OnValueChanged;
 
         OnScoreChanged?.Invoke(this, EventArgs.Empty);
-
-
     }
 
-    private void NetworkManager_OnClientConnectedCallback(ulong obj)// hàm này sẽ được gọi mỗi khi có một client mới kết nối vào game, nó sẽ kiểm tra xem đã đủ 2 người chơi kết nối chưa và nếu có thì phát event để bắt đầu game.
+    public override void OnNetworkDespawn()
     {
-        if(NetworkManager.Singleton.ConnectedClientsList.Count == 2) // khi có đủ 2 người chơi kết nối vào game thì phát event onGameStarted để bắt đầu game
+        if (IsServer && NetworkManager.Singleton != null)
         {
-            // stated game
-            currentPlayerType.Value = PlayerType.Cross; // đặt lượt chơi đầu tiên là Cross
-            TriggerOnGameStartedRpc();
+            NetworkManager.Singleton.OnClientConnectedCallback -= Server_OnClientConnectedCallback;
+            NetworkManager.Singleton.OnClientDisconnectCallback -= Server_OnClientDisconnectedCallback;
+        }
+
+        lobbyPlayerCount.OnValueChanged -= LobbyPlayerCount_OnValueChanged;
+        currentPlayerType.OnValueChanged -= CurrentPlayerType_OnValueChanged;
+        playerCrossScore.OnValueChanged -= Score_OnValueChanged;
+        playerCircleScore.OnValueChanged -= Score_OnValueChanged;
+        isGameStarted.OnValueChanged -= IsGameStarted_OnValueChanged;
+    }
+
+    private void LobbyPlayerCount_OnValueChanged(int oldCount, int newCount)
+    {
+        OnLobbyPlayersChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void CurrentPlayerType_OnValueChanged(PlayerType oldPlayertype, PlayerType newPlayerType)
+    {
+        OnCurrentPlayerType?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void Score_OnValueChanged(int oldScore, int newScore)
+    {
+        OnScoreChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void IsGameStarted_OnValueChanged(bool oldVal, bool newVal)
+    {
+        if (newVal)
+        {
+            OnGameStarted?.Invoke(this, EventArgs.Empty);
+        }
+        else if (oldVal)
+        {
+            OnGameReturnedToLobby?.Invoke(this, EventArgs.Empty);
         }
     }
-    [Rpc(SendTo.ClientsAndHost)]
-    private void TriggerOnGameStartedRpc()
-    {
-         OnGameStarted?.Invoke(this, EventArgs.Empty);
-    }
-    [Rpc(SendTo.Server)] // hàm này sẽ được gọi từ client và thực thi trên server để xử lý logic liên quan đến việc click vào điểm trên bàn cờ, sau đó phát event để các client khác có thể cập nhật giao diện tương ứng
-    public void clickedOnGripPositionRpc(int x , int y , PlayerType playerType)
 
+    private void Server_OnClientConnectedCallback(ulong clientId)
     {
+        // Khi có client mới kết nối, tính toán số lượng người trong phòng để phân vai trò
+        int playerIndex = NetworkManager.Singleton.ConnectedClientsList.Count - 1;
+
+        PlayerType assignedType = PlayerType.None; // Mặc định từ người thứ 3 trở đi là Khán Giả (None)
+
+        if (playerIndex == 0) assignedType = PlayerType.Cross;
+        else if (playerIndex == 1) assignedType = PlayerType.Circle;
+
+        // Chỉ định vai trò cụ thể cho Client vừa kết nối vào
+        AssignPlayerTypeRpc(clientId, assignedType);
+
+        // Cập nhật giao diện Lobby cho toàn bộ phòng
+        RefreshLobbyPlayerCount();
+    }
+
+    private void Server_OnClientDisconnectedCallback(ulong clientId)
+    {
+        if (isGameStarted.Value && NetworkManager.Singleton.ConnectedClientsList.Count < 2)
+        {
+            ReturnToLobbyAfterPlayerExit();
+        }
+
+        RefreshLobbyPlayerCount();
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void AssignPlayerTypeRpc(ulong clientId, PlayerType type)
+    {
+        if (NetworkManager.Singleton.LocalClientId == clientId)
+        {
+            localPlayerType = type;
+            Debug.Log("Vai trò của bạn trong phòng này là: " + localPlayerType);
+        }
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void NotifyLobbyChangedRpc()
+    {
+        OnLobbyPlayersChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void RefreshLobbyPlayerCount()
+    {
+        if (!IsServer || NetworkManager.Singleton == null)
+        {
+            return;
+        }
+
+        lobbyPlayerCount.Value = NetworkManager.Singleton.ConnectedClientsList.Count;
+        NotifyLobbyChangedRpc();
+    }
+
+    private void ReturnToLobbyAfterPlayerExit()
+    {
+        ResetBoardState();
+        currentPlayerType.Value = PlayerType.None;
+        TriggerOnRematchRpc();
+        isGameStarted.Value = false;
+    }
+
+    // Hàm này sẽ được gán vào Nút "START GAME" trên UI Lobby (Chỉ Host bấm được)
+    public void StartGameFromLobby()
+    {
+        if (!IsServer) return;
+
+        if (NetworkManager.Singleton.ConnectedClientsList.Count >= 2)
+        {
+            isGameStarted.Value = true;
+            currentPlayerType.Value = PlayerType.Cross; // Đặt lượt chơi đầu tiên là Cross
+        }
+        else
+        {
+            Debug.Log("Chưa đủ 2 người chơi chính, không thể Start Game!");
+        }
+    }
+
+    [Rpc(SendTo.Server)]
+    public void clickedOnGripPositionRpc(int x, int y, PlayerType playerType)
+    {
+        // Nếu Game chưa bắt đầu hoặc người bấm là Khán giả (None) thì chặn tại Server
+        if (!isGameStarted.Value || playerType == PlayerType.None) return;
+
         Debug.Log("clickedOnGripPosition:" + x + ", " + y);
-        if(playerType != currentPlayerType.Value)
+        if (playerType != currentPlayerType.Value)
         {
             Debug.Log("It's not your turn!");
             return;
         }
 
-            if(playerTypeArrray[x, y] != PlayerType.None)
-            {
-                Debug.Log("This position is already occupied!");
-                return;
-            }
+        if (!IsInBoard(x, y))
+        {
+            Debug.Log("This position is outside the board!");
+            return;
+        }
 
-            playerTypeArrray[x, y] = playerType; // cập nhật mảng để đánh dấu vị trí đã được đặt quân cờ
-            moveCount++;
-        OnGripPositionClicked?.Invoke(this, new OnGripPositionClickedEventArgs {
-             x = x, y = y, playerType = playerType });
+        if (playerTypeArrray[x, y] != PlayerType.None)
+        {
+            Debug.Log("This position is already occupied!");
+            return;
+        }
 
-        // Chuyển lượt chơi sau khi một điểm được click
-        switch(currentPlayerType.Value)
+        playerTypeArrray[x, y] = playerType;
+        moveCount++;
+        OnGripPositionClicked?.Invoke(this, new OnGripPositionClickedEventArgs
+        {
+            x = x,
+            y = y,
+            playerType = playerType
+        });
+
+        switch (currentPlayerType.Value)
         {
             case PlayerType.Cross:
                 currentPlayerType.Value = PlayerType.Circle;
@@ -144,28 +254,25 @@ public class GameManager : NetworkBehaviour
                 currentPlayerType.Value = PlayerType.Cross;
                 break;
         }
-        testWinner(x, y); // kiểm tra xem sau khi đặt quân cờ vào vị trí (x, y) thì có người chơi nào thắng hay không
-     
+        testWinner(x, y);
     }
-   private bool checkLine(int x , int y ,int dirX , int dirY ,PlayerType playerType)
+
+    private bool checkLine(int x, int y, int dirX, int dirY, PlayerType playerType)
     {
-        int count = 1; // Đếm số quân cờ liên tiếp, bắt đầu với 1 vì đã có quân cờ tại (x, y)
-        count += CountInDirection(x, y, dirX, dirY, playerType); // Đếm quân cờ theo hướng (dirX, dirY)
-        count += CountInDirection(x, y, -dirX, -dirY, playerType); // Đếm quân cờ theo hướng ngược lại (-dirX, -dirY)
-        return count >= 5; // Trả về true nếu có ít nhất 5 quân cờ liên tiếp
+        int count = 1;
+        count += CountInDirection(x, y, dirX, dirY, playerType);
+        count += CountInDirection(x, y, -dirX, -dirY, playerType);
+        return count >= 5;
     }
 
     private int CountInDirection(int x, int y, int dirX, int dirY, PlayerType playerType)
     {
         int count = 0;
-       int checkX = x + dirX;
+        int checkX = x + dirX;
         int checkY = y + dirY;
 
-        while(
-            checkX >= 0 &&
-            checkX < 30 &&
-            checkY >= 0 &&
-            checkY < 18 &&
+        while (
+            IsInBoard(checkX, checkY) &&
             playerTypeArrray[checkX, checkY] == playerType
         )
         {
@@ -176,40 +283,41 @@ public class GameManager : NetworkBehaviour
 
         return count;
     }
-    private void testWinner(int x , int y){
+
+    private void testWinner(int x, int y)
+    {
         PlayerType playerType = playerTypeArrray[x, y];
-        if(playerType == PlayerType.None)
+        if (playerType == PlayerType.None)
         {
             return;
         }
 
-        if(checkLine(x, y, 1, 0, playerType)) // Kiểm tra hàng ngang
+        if (checkLine(x, y, 1, 0, playerType))
         {
             win(GetWinCenter(x, y, 1, 0, playerType), Orientation.Horizontal);
-            
-        } else if(checkLine(x, y, 0, 1, playerType)) // Kiểm tra hàng dọc
+        }
+        else if (checkLine(x, y, 0, 1, playerType))
         {
             win(GetWinCenter(x, y, 0, 1, playerType), Orientation.Vertical);
         }
-        else if(checkLine(x, y, 1, 1, playerType)) // Kiểm tra đường chéo chính
+        else if (checkLine(x, y, 1, 1, playerType))
         {
             win(GetWinCenter(x, y, 1, 1, playerType), Orientation.DiagonalA);
         }
-        else if(checkLine(x, y, 1, -1, playerType)) // Kiểm tra đường chéo phụ
+        else if (checkLine(x, y, 1, -1, playerType))
         {
             win(GetWinCenter(x, y, 1, -1, playerType), Orientation.DiagonalB);
-        }   
+        }
         else
         {
             checkDraw();
         }
     }
+
     private void win(Vector2Int centerPos, Orientation orientation)
     {
-         
-
-            PlayerType winnerType = playerTypeArrray[centerPos.x , centerPos.y];
-            switch (winnerType)
+        PlayerType winnerType = playerTypeArrray[centerPos.x, centerPos.y];
+        switch (winnerType)
         {
             case PlayerType.Cross:
                 playerCrossScore.Value++;
@@ -219,100 +327,100 @@ public class GameManager : NetworkBehaviour
                 break;
         }
 
-            currentPlayerType.Value = PlayerType.None; // Đặt lượt chơi về None để kết thúc game
-            TriggerOnGameWinRpc(centerPos, orientation, winnerType); // Phát event để thông báo cho các client khác về việc có người chơi đã thắng và vị trí trung tâm của đường thắng cùng với hướng của đường thắng
-           
-    }
-    private void checkDraw()
-{
-    if (moveCount >= BOARD_WIDTH * BOARD_HEIGHT)
-    {
-        Debug.Log("Draw!");
-
         currentPlayerType.Value = PlayerType.None;
-
-        TriggerOnGameWinRpc(Vector2Int.zero, Orientation.Horizontal, PlayerType.None);
+        TriggerOnGameWinRpc(centerPos, orientation, winnerType);
     }
-}
+
+    private void checkDraw()
+    {
+        if (moveCount >= (BOARD_WIDTH + 1) * (BOARD_HEIGHT + 1))
+        {
+            Debug.Log("Draw!");
+            currentPlayerType.Value = PlayerType.None;
+            TriggerOnGameWinRpc(Vector2Int.zero, Orientation.Horizontal, PlayerType.None);
+        }
+    }
+
     [Rpc(SendTo.ClientsAndHost)]
     private void TriggerOnGameWinRpc(Vector2Int centerPos, Orientation orientation, PlayerType playerWinType)
     {
-         OnGameWin?.Invoke(this, new OnGameWinEventArgs { 
-                centerGridposition = centerPos,
-                orientation = orientation,
-                playerWinType = playerWinType
-                 });
-    }
-   private Vector2Int GetWinCenter(int x, int y, int dirX, int dirY, PlayerType playerType)
-{
-    int minX = x;
-    int minY = y;
-    int maxX = x;
-    int maxY = y;
-
-    // Đi về một phía
-    int checkX = x + dirX;
-    int checkY = y + dirY;
-
-    while (
-        checkX >= 0 &&
-        checkX < 30 &&
-        checkY >= 0 &&
-        checkY < 18 &&
-        playerTypeArrray[checkX, checkY] == playerType
-    )
-    {
-        maxX = checkX;
-        maxY = checkY;
-
-        checkX += dirX;
-        checkY += dirY;
-    }
-
-    // Đi về phía ngược lại
-    checkX = x - dirX;
-    checkY = y - dirY;
-
-    while (
-        checkX >= 0 &&
-        checkX < 30 &&
-        checkY >= 0 &&
-        checkY < 18 &&
-        playerTypeArrray[checkX, checkY] == playerType
-    )
-    {
-        minX = checkX;
-        minY = checkY;
-
-        checkX -= dirX;
-        checkY -= dirY;
-    }
-
-    return new Vector2Int( 
-        (minX + maxX) / 2,
-        (minY + maxY) / 2
-    );
-}
-[Rpc(SendTo.Server)]
-public void RematchRpc()
-    {
-        for(int x = 0 ; x < playerTypeArrray.GetLength(0) ; x++)
+        OnGameWin?.Invoke(this, new OnGameWinEventArgs
         {
-            for(int y = 0 ; y < playerTypeArrray.GetLength(1) ; y++)
-            {
-                playerTypeArrray[x, y] = PlayerType.None;
-            }
+            centerGridposition = centerPos,
+            orientation = orientation,
+            playerWinType = playerWinType
+        });
+    }
+
+    private Vector2Int GetWinCenter(int x, int y, int dirX, int dirY, PlayerType playerType)
+    {
+        int minX = x;
+        int minY = y;
+        int maxX = x;
+        int maxY = y;
+
+        int checkX = x + dirX;
+        int checkY = y + dirY;
+
+        while (
+            IsInBoard(checkX, checkY) &&
+            playerTypeArrray[checkX, checkY] == playerType
+        )
+        {
+            maxX = checkX;
+            maxY = checkY;
+            checkX += dirX;
+            checkY += dirY;
         }
-        moveCount = 0;
-        currentPlayerType.Value = PlayerType.Cross; // Đặt lượt chơi đầu tiên là Cross
+
+        checkX = x - dirX;
+        checkY = y - dirY;
+
+        while (
+            IsInBoard(checkX, checkY) &&
+            playerTypeArrray[checkX, checkY] == playerType
+        )
+        {
+            minX = checkX;
+            minY = checkY;
+            checkX -= dirX;
+            checkY -= dirY;
+        }
+
+        return new Vector2Int((minX + maxX) / 2, (minY + maxY) / 2);
+    }
+
+    [Rpc(SendTo.Server)]
+    public void RematchRpc()
+    {
+        ResetBoardState();
+        currentPlayerType.Value = PlayerType.Cross;
         TriggerOnRematchRpc();
     }
+
     [Rpc(SendTo.ClientsAndHost)]
     private void TriggerOnRematchRpc()
     {
         OnRematch?.Invoke(this, EventArgs.Empty);
     }
- 
+
+    public bool IsGameActive()
+    {
+        return isGameStarted.Value;
+    }
+    public int GetLobbyPlayerCount()
+    {
+        if (NetworkManager.Singleton != null && IsServer)
+        {
+            return NetworkManager.Singleton.ConnectedClientsList.Count;
+        }
+
+        return lobbyPlayerCount.Value;
+    }
+    public bool CanStartGameFromLobby()
+    {
+        return IsServer && GetLobbyPlayerCount() >= 2;
+    }
     public PlayerType GetLocalPlayerType()
     {
         return localPlayerType;
@@ -328,5 +436,23 @@ public void RematchRpc()
     public int getCircleScore()
     {
         return playerCircleScore.Value;
+    }
+
+    private bool IsInBoard(int x, int y)
+    {
+        return x >= 0 && x <= BOARD_WIDTH && y >= 0 && y <= BOARD_HEIGHT;
+    }
+
+    private void ResetBoardState()
+    {
+        for (int x = 0; x < playerTypeArrray.GetLength(0); x++)
+        {
+            for (int y = 0; y < playerTypeArrray.GetLength(1); y++)
+            {
+                playerTypeArrray[x, y] = PlayerType.None;
+            }
+        }
+
+        moveCount = 0;
     }
 }
