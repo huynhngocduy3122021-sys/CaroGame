@@ -28,8 +28,7 @@ public class NetworkManagerUI : MonoBehaviour
     [SerializeField] private GameObject gameplayPanel;
     [SerializeField] private Button gameplayExitButton;
 
-    [Header("Runtime UI")]
-    [SerializeField] private bool autoBuildDefaultUI = true;
+    [Header("Connection Settings")]
     [SerializeField] private int defaultPort = 7777;
 
     private const string DefaultClientAddress = "127.0.0.1";
@@ -45,7 +44,7 @@ public class NetworkManagerUI : MonoBehaviour
         currentPort = NormalizePort(defaultPort);
         unityTransport = FindUnityTransport();
 
-        if (autoBuildDefaultUI && NeedsRuntimeUI())
+        if (NeedsRuntimeUI())
         {
             BuildRuntimeUI();
         }
@@ -104,7 +103,10 @@ public class NetworkManagerUI : MonoBehaviour
             portInputField == null ||
             inviteCodeText == null ||
             playerStatusText == null ||
+            lobbyStatusText == null ||
+            copyInviteButton == null ||
             startGameButton == null ||
+            leaveLobbyButton == null ||
             gameplayPanel == null ||
             gameplayExitButton == null;
     }
@@ -149,6 +151,7 @@ public class NetworkManagerUI : MonoBehaviour
 
         if (portInputField != null)
         {
+            portInputField.onValueChanged.RemoveAllListeners();
             portInputField.text = currentPort.ToString();
             portInputField.onValueChanged.AddListener(_ => UpdateInvitePreview());
         }
@@ -210,6 +213,7 @@ public class NetworkManagerUI : MonoBehaviour
             return;
         }
 
+        Debug.Log("Started Host on " + GetInviteCode());
         ShowLobbyPanel("Phòng đã tạo. Gửi mã mời cho người chơi khác.");
     }
 
@@ -236,6 +240,7 @@ public class NetworkManagerUI : MonoBehaviour
             return;
         }
 
+        Debug.Log("Started Client to " + address + ":" + port);
         ShowLobbyPanel("Đang kết nối đến lobby...");
     }
 
@@ -425,44 +430,14 @@ public class NetworkManagerUI : MonoBehaviour
     private void ShowConnectionPanel(string message)
     {
         gameObject.SetActive(true);
-
-        if (connectionPanel != null)
-        {
-            connectionPanel.SetActive(true);
-        }
-
-        if (lobbyPanel != null)
-        {
-            lobbyPanel.SetActive(false);
-        }
-
-        if (gameplayPanel != null)
-        {
-            gameplayPanel.SetActive(false);
-        }
-
+        SetPanelState(true, false, false);
         SetConnectionStatus(message);
     }
 
     private void ShowLobbyPanel(string message)
     {
         gameObject.SetActive(true);
-
-        if (connectionPanel != null)
-        {
-            connectionPanel.SetActive(false);
-        }
-
-        if (lobbyPanel != null)
-        {
-            lobbyPanel.SetActive(true);
-        }
-
-        if (gameplayPanel != null)
-        {
-            gameplayPanel.SetActive(false);
-        }
-
+        SetPanelState(false, true, false);
         SetLobbyStatus(message);
         UpdateLobbyUI();
     }
@@ -470,20 +445,24 @@ public class NetworkManagerUI : MonoBehaviour
     private void ShowGameplayPanel()
     {
         gameObject.SetActive(true);
+        SetPanelState(false, false, true);
+    }
 
+    private void SetPanelState(bool showConnection, bool showLobby, bool showGameplay)
+    {
         if (connectionPanel != null)
         {
-            connectionPanel.SetActive(false);
+            connectionPanel.SetActive(showConnection);
         }
 
         if (lobbyPanel != null)
         {
-            lobbyPanel.SetActive(false);
+            lobbyPanel.SetActive(showLobby);
         }
 
         if (gameplayPanel != null)
         {
-            gameplayPanel.SetActive(true);
+            gameplayPanel.SetActive(showGameplay);
         }
     }
 
@@ -673,12 +652,10 @@ public class NetworkManagerUI : MonoBehaviour
         lobbyStatusText = CreateText("LobbyStatus", lobbyBox.transform, string.Empty, 20f, TextAlignmentOptions.Center, new Vector2(480f, 54f), new Vector2(0f, -145f), new Color(0.86f, 0.9f, 0.95f, 1f));
         startGameButton = CreateButton(lobbyBox.transform, "StartGameButton", "Bắt đầu", new Vector2(180f, 50f), new Vector2(-105f, -205f), new Color(0.15f, 0.7f, 0.45f, 1f));
         leaveLobbyButton = CreateButton(lobbyBox.transform, "LeaveLobbyButton", "Rời phòng", new Vector2(180f, 50f), new Vector2(105f, -205f), new Color(0.55f, 0.22f, 0.22f, 1f));
-
         lobbyPanel.SetActive(false);
 
         gameplayPanel = CreateUIObject("GameplayPanel", transform);
-        RectTransform gameplayRect = gameplayPanel.GetComponent<RectTransform>();
-        Stretch(gameplayRect);
+        Stretch(gameplayPanel.GetComponent<RectTransform>());
         gameplayExitButton = CreateButton(gameplayPanel.transform, "GameplayExitButton", "Thoát", new Vector2(120f, 42f), new Vector2(-80f, -34f), new Color(0.55f, 0.22f, 0.22f, 1f));
         RectTransform exitRect = gameplayExitButton.GetComponent<RectTransform>();
         exitRect.anchorMin = new Vector2(1f, 1f);
@@ -690,8 +667,7 @@ public class NetworkManagerUI : MonoBehaviour
     private GameObject CreateFullscreenPanel(string objectName, Color color)
     {
         GameObject panel = CreateUIObject(objectName, transform);
-        RectTransform rectTransform = panel.GetComponent<RectTransform>();
-        Stretch(rectTransform);
+        Stretch(panel.GetComponent<RectTransform>());
 
         Image image = panel.AddComponent<Image>();
         image.color = color;
