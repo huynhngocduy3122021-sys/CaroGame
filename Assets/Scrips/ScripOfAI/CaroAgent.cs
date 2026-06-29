@@ -4,6 +4,11 @@ using Unity.MLAgents;
 using Unity.MLAgents.Actuators;
 using Unity.MLAgents.Sensors;
 
+/// <summary>
+/// SCRIPT DÙNG ĐỂ TRAINING (HUẤN LUYỆN MODEL)
+/// Class này kế thừa từ ML-Agents Agent, chịu trách nhiệm mô phỏng môi trường tự chơi,
+/// tính toán điểm thưởng (rewards), và tối ưu hóa hành vi của AI thông qua học sâu tăng cường (Reinforcement Learning).
+/// </summary>
 public class CaroAgent : Agent
 {
     private const int PointsX = 31;
@@ -16,18 +21,22 @@ public class CaroAgent : Agent
     private int moveCount;
     private int episodeCount;
     private int bestAILine;
+    private int bestOpponentLine;
     private StatsRecorder statsRecorder;
 
+    // Initialize: Gọi một lần duy nhất khi Agent được khởi tạo trong môi trường train
     public override void Initialize()
     {
         statsRecorder = Academy.Instance.StatsRecorder;
     }
 
+    // OnEpisodeBegin: Khởi tạo lại trạng thái bàn cờ khi bắt đầu một ván chơi (episode) mới để training
     public override void OnEpisodeBegin()
     {
         System.Array.Clear(board, 0, board.Length);
         moveCount = 0;
         bestAILine = 0;
+        bestOpponentLine = 0;
 
         // Gameplay thật cho người chơi đi trước. Luân phiên thứ tự để model
         // học được cả hai phân phối trạng thái và không phụ thuộc nước mở đầu.
@@ -37,9 +46,11 @@ public class CaroAgent : Agent
         if (opponentStarts)
         {
             PlaceOpponentOpening();
+            bestOpponentLine = GetLongestLine(Opponent);
         }
     }
 
+    // CollectObservations: Thu thập trạng thái bàn cờ hiện tại và gửi cho neural network (để AI 'nhìn' thấy bàn cờ)
     public override void CollectObservations(VectorSensor sensor)
     {
         for (int y = 0; y < PointsY; y++)
@@ -51,6 +62,7 @@ public class CaroAgent : Agent
         }
     }
 
+    // WriteDiscreteActionMask: Mặt nạ hành động giúp loại bỏ các nước đi không hợp lệ (đã có quân cờ) trước khi AI đưa ra quyết định
     public override void WriteDiscreteActionMask(IDiscreteActionMask actionMask)
     {
         bool[,] allowedMoves = BuildAllowedMoveMask();
@@ -67,6 +79,7 @@ public class CaroAgent : Agent
         }
     }
 
+    // OnActionReceived: Nhận nước đi từ neural network, thực hiện nước đi đó trên bàn cờ ảo, tính điểm thưởng/phạt và chuyển lượt
     public override void OnActionReceived(ActionBuffers actions)
     {
         int action = actions.DiscreteActions[0];
@@ -81,6 +94,10 @@ public class CaroAgent : Agent
             return;
         }
 
+        // Check defensive actions before placing AI stone
+        int opponentPotentialLine = GetLongestLineThrough(x, y, Opponent);
+        int opponentOpenEnds = CountOpenEnds(x, y, Opponent);
+
         bool blockedImmediateLoss = IsWinningMove(x, y, Opponent);
         board[x, y] = AI;
         moveCount++;
@@ -88,8 +105,28 @@ public class CaroAgent : Agent
 
         if (blockedImmediateLoss)
         {
-            AddReward(0.2f);
+            AddReward(0.25f);
             statsRecorder.Add("Caro/BlockedImmediateWin", 1f);
+        }
+        else if (opponentPotentialLine == 4)
+        {
+            float blockReward = 0.08f;
+            if (opponentOpenEnds > 0)
+            {
+                blockReward += 0.04f;
+            }
+            AddReward(blockReward);
+            statsRecorder.Add("Caro/BlockedFourRow", 1f);
+        }
+        else if (opponentPotentialLine == 3)
+        {
+            float blockReward = 0.02f;
+            if (opponentOpenEnds > 0)
+            {
+                blockReward += 0.01f;
+            }
+            AddReward(blockReward);
+            statsRecorder.Add("Caro/BlockedThreeRow", 1f);
         }
 
         int currentBestLine = GetLongestLine(AI);
@@ -132,6 +169,15 @@ public class CaroAgent : Agent
         board[x, y] = Opponent;
         moveCount++;
 
+        // Penalize the AI when the opponent's longest line grows (zero-sum incentive)
+        int currentBestOpponentLine = GetLongestLine(Opponent);
+        if (currentBestOpponentLine > bestOpponentLine)
+        {
+            float penalty = GetLineProgressReward(currentBestOpponentLine) - GetLineProgressReward(bestOpponentLine);
+            AddReward(-penalty);
+            bestOpponentLine = currentBestOpponentLine;
+        }
+
         if (CheckWin(x, y, Opponent))
         {
             AddReward(-1f);
@@ -155,9 +201,9 @@ public class CaroAgent : Agent
         const int easyPhaseSteps = 500000;
         float progress = Mathf.Clamp01(
             (Academy.Instance.StepCount - easyPhaseSteps) / 2500000f);
-        float useWinningMoveChance = Mathf.Lerp(0f, 1f, progress);
-        float useBlockingMoveChance = Mathf.Lerp(0f, 0.95f, progress);
-        float useHeuristicChance = Mathf.Lerp(0f, 0.95f, progress);
+        float useWinningMoveChance = Mathf.Lerp(0.2f, 1f, progress);
+        float useBlockingMoveChance = Mathf.Lerp(0.2f, 0.95f, progress);
+        float useHeuristicChance = Mathf.Lerp(0.1f, 0.95f, progress);
 
         if (Random.value < useWinningMoveChance &&
             TryFindImmediateWinningMove(Opponent, out selectedX, out selectedY))

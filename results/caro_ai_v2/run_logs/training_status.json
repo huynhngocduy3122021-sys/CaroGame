@@ -2,40 +2,49 @@
     "CaroAgent": {
         "checkpoints": [
             {
-                "steps": 249987,
-                "file_path": "results\\caro_ai_v2\\CaroAgent\\CaroAgent-249987.onnx",
-                "reward": 0.9093889273979046,
-                "creation_time": 1782098844.5874197,
+                "steps": 249978,
+                "file_path": "results\\caro_ai_v2\\CaroAgent\\CaroAgent-249978.onnx",
+                "reward": -1.1309974353930672,
+                "creation_time": 1782360977.108965,
                 "auxillary_file_paths": [
-                    "results\\caro_ai_v2\\CaroAgent\\CaroAgent-249987.pt"
+                    "results\\caro_ai_v2\\CaroAgent\\CaroAgent-249978.pt"
                 ]
             },
             {
-                "steps": 499985,
-                "file_path": "results\\caro_ai_v2\\CaroAgent\\CaroAgent-499985.onnx",
-                "reward": 1.1723516883103402,
-                "creation_time": 1782100436.178348,
+                "steps": 379628,
+                "file_path": "results\\caro_ai_v2\\CaroAgent\\CaroAgent-379628.onnx",
+                "reward": -0.23104165494441986,
+                "creation_time": 1782361744.9349432,
                 "auxillary_file_paths": [
-                    "results\\caro_ai_v2\\CaroAgent\\CaroAgent-499985.pt"
+                    "results\\caro_ai_v2\\CaroAgent\\CaroAgent-379628.pt"
                 ]
             },
             {
-                "steps": 738439,
-                "file_path": "results\\caro_ai_v2\\CaroAgent\\CaroAgent-738439.onnx",
-                "reward": 0.8964905583340189,
-                "creation_time": 1782101927.4568837,
+                "steps": 499994,
+                "file_path": "results\\caro_ai_v2\\CaroAgent\\CaroAgent-499994.onnx",
+                "reward": 0.4529385091736913,
+                "creation_time": 1782704392.4911633,
                 "auxillary_file_paths": [
-                    "results\\caro_ai_v2\\CaroAgent\\CaroAgent-738439.pt"
+                    "results\\caro_ai_v2\\CaroAgent\\CaroAgent-499994.pt"
+                ]
+            },
+            {
+                "steps": 500235,
+                "file_path": "results\\caro_ai_v2\\CaroAgent\\CaroAgent-500235.onnx",
+                "reward": 0.45701883005020316,
+                "creation_time": 1782704531.530855,
+                "auxillary_file_paths": [
+                    "results\\caro_ai_v2\\CaroAgent\\CaroAgent-500235.pt"
                 ]
             }
         ],
         "final_checkpoint": {
-            "steps": 738439,
+            "steps": 500235,
             "file_path": "results\\caro_ai_v2\\CaroAgent.onnx",
-            "reward": 0.8964905583340189,
-            "creation_time": 1782101927.4568837,
+            "reward": 0.45701883005020316,
+            "creation_time": 1782704531.530855,
             "auxillary_file_paths": [
-                "results\\caro_ai_v2\\CaroAgent\\CaroAgent-738439.pt"
+                "results\\caro_ai_v2\\CaroAgent\\CaroAgent-500235.pt"
             ]
         }
     },

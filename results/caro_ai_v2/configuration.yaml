@@ -69,7 +69,7 @@ checkpoint_settings:
   run_id: caro_ai_v2
   initialize_from: null
   load_model: false
-  resume: false
+  resume: true
   force: false
   train_model: true
   inference: false
