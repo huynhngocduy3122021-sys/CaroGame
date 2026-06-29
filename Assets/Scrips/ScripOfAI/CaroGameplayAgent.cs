@@ -49,13 +49,19 @@ public class CaroGameplayAgent : Agent
     // CollectObservations: Thu thập trạng thái bàn cờ hiện tại từ GameManager để làm đầu vào cho Model AI dự đoán
     public override void CollectObservations(VectorSensor sensor)
     {
+        var sb = new System.Text.StringBuilder("AI Observations: ");
         for (int y = 0; y < PointsY; y++)
         {
             for (int x = 0; x < PointsX; x++)
             {
                 sensor.AddObservation(board[x, y]);
+                if (board[x, y] != 0)
+                {
+                    sb.Append($"({x},{y})={board[x, y]} ");
+                }
             }
         }
+        Debug.Log(sb.ToString());
     }
 
     // WriteDiscreteActionMask: Chặn các ô đã có quân cờ (không cho phép AI chọn đánh vào những ô này)
@@ -84,11 +90,21 @@ public class CaroGameplayAgent : Agent
         int x = action % PointsX;
         int y = action / PointsX;
 
-        if (!IsEmpty(x, y))
+        // Heuristic override to force blocking player's 3-in-a-row, 4-in-a-row, or taking immediate wins
+        if (TryGetBestHeuristicMove(out int heuristicX, out int heuristicY))
         {
-            if (!TryFindAllowedCell(out x, out y))
+            x = heuristicX;
+            y = heuristicY;
+            Debug.Log($"[AI Heuristic Override] Playing ({x}, {y}) to block or win.");
+        }
+        else
+        {
+            if (!IsEmpty(x, y))
             {
-                return;
+                if (!TryFindAllowedCell(out x, out y))
+                {
+                    return;
+                }
             }
         }
 
@@ -96,6 +112,139 @@ public class CaroGameplayAgent : Agent
         {
             Debug.LogWarning($"AI move ({x}, {y}) was rejected.");
         }
+    }
+
+    private bool TryGetBestHeuristicMove(out int bestX, out int bestY)
+    {
+        bestX = -1;
+        bestY = -1;
+        int highestScore = -1;
+
+        for (int y = 0; y < PointsY; y++)
+        {
+            for (int x = 0; x < PointsX; x++)
+            {
+                if (board[x, y] != 0) continue;
+
+                int aiScore = GetCellScoreForPlayer(x, y, 1);
+                int playerScore = GetCellScoreForPlayer(x, y, -1);
+
+                int cellScore = 0;
+
+                // 1. AI immediate win (5-in-a-row)
+                if (aiScore >= 100000)
+                {
+                    cellScore = 1000000;
+                }
+                // 2. Block player immediate win (5-in-a-row)
+                else if (playerScore >= 100000)
+                {
+                    cellScore = 500000;
+                }
+                // 3. Block player open 4-in-a-row
+                else if (playerScore >= 10000)
+                {
+                    cellScore = 200000;
+                }
+                // 4. AI open 4-in-a-row
+                else if (aiScore >= 10000)
+                {
+                    cellScore = 100000;
+                }
+                // 5. Block player closed 4-in-a-row or open 3-in-a-row (very high threat)
+                else if (playerScore >= 500)
+                {
+                    cellScore = 50000;
+                }
+                // 6. AI closed 4-in-a-row or open 3-in-a-row
+                else if (aiScore >= 500)
+                {
+                    cellScore = 20000;
+                }
+
+                if (cellScore > 0)
+                {
+                    int combinedScore = cellScore + aiScore + playerScore;
+                    if (combinedScore > highestScore)
+                    {
+                        highestScore = combinedScore;
+                        bestX = x;
+                        bestY = y;
+                    }
+                }
+            }
+        }
+
+        return highestScore > 0;
+    }
+
+    private int GetCellScoreForPlayer(int x, int y, int player)
+    {
+        int maxScore = 0;
+        int[] dirsX = { 1, 0, 1, 1 };
+        int[] dirsY = { 0, 1, 1, -1 };
+
+        for (int i = 0; i < 4; i++)
+        {
+            int dx = dirsX[i];
+            int dy = dirsY[i];
+
+            int count = 1;
+            int openEnds = 0;
+
+            // Positive direction
+            int curX = x + dx;
+            int curY = y + dy;
+            while (curX >= 0 && curX < PointsX && curY >= 0 && curY < PointsY && board[curX, curY] == player)
+            {
+                count++;
+                curX += dx;
+                curY += dy;
+            }
+            if (curX >= 0 && curX < PointsX && curY >= 0 && curY < PointsY && board[curX, curY] == 0)
+            {
+                openEnds++;
+            }
+
+            // Negative direction
+            curX = x - dx;
+            curY = y - dy;
+            while (curX >= 0 && curX < PointsX && curY >= 0 && curY < PointsY && board[curX, curY] == player)
+            {
+                count++;
+                curX -= dx;
+                curY -= dy;
+            }
+            if (curX >= 0 && curX < PointsX && curY >= 0 && curY < PointsY && board[curX, curY] == 0)
+            {
+                openEnds++;
+            }
+
+            int score = 0;
+            if (count >= 5) score = 100000;
+            else if (count == 4)
+            {
+                if (openEnds == 2) score = 10000;
+                else if (openEnds == 1) score = 1000;
+            }
+            else if (count == 3)
+            {
+                if (openEnds == 2) score = 500;
+                else if (openEnds == 1) score = 50;
+            }
+            else if (count == 2)
+            {
+                if (openEnds == 2) score = 10;
+                else if (openEnds == 1) score = 1;
+            }
+
+            if (score > maxScore)
+            {
+                maxScore = score;
+            }
+        }
+
+        return maxScore;
     }
 
     // OnMovePlaced: Cập nhật nước đi của người chơi hoặc AI vào bảng dữ liệu nội bộ của Agent để đồng bộ trạng thái
