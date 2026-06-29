@@ -34,7 +34,10 @@ public class PlayerUI : MonoBehaviour
     }
     private void Update()
     {
-        updateVisual();
+        if (GameManager.Instance != null)
+        {
+            updateVisual();
+        }
     }
     private void GameManager_OnScoreChanged(object sender , System.EventArgs e)
     {
@@ -43,6 +46,11 @@ public class PlayerUI : MonoBehaviour
 
     private void updateVisual()
     {
+        if (GameManager.Instance == null)
+        {
+            return;
+        }
+
         crossText.text = "" + GameManager.Instance.getCrossScore();
         circleText.text = "" + GameManager.Instance.getCircleScore();
         
@@ -68,7 +76,9 @@ public class PlayerUI : MonoBehaviour
     }
     private void UpdateCurrentArrow()
     {
-        if(GameManager.Instance.GetCurrentPlayerType() == GameManager.PlayerType.Cross)
+        GameManager.PlayerType currentPlayer = GameManager.Instance.GetCurrentPlayerType();
+
+        if(currentPlayer == GameManager.PlayerType.Cross)
         {
             crossArrowGameObject.SetActive(true);
             circleArrowGameObject.SetActive(false);

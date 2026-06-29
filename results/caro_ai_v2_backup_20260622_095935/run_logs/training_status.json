@@ -1,0 +1,38 @@
+{
+    "CaroAgent": {
+        "checkpoints": [
+            {
+                "steps": 249993,
+                "file_path": "results\\caro_ai_v2\\CaroAgent\\CaroAgent-249993.onnx",
+                "reward": -0.9986057350268731,
+                "creation_time": 1782096835.1374052,
+                "auxillary_file_paths": [
+                    "results\\caro_ai_v2\\CaroAgent\\CaroAgent-249993.pt"
+                ]
+            },
+            {
+                "steps": 254237,
+                "file_path": "results\\caro_ai_v2\\CaroAgent\\CaroAgent-254237.onnx",
+                "reward": -0.9988170386926318,
+                "creation_time": 1782096859.8724277,
+                "auxillary_file_paths": [
+                    "results\\caro_ai_v2\\CaroAgent\\CaroAgent-254237.pt"
+                ]
+            }
+        ],
+        "final_checkpoint": {
+            "steps": 254237,
+            "file_path": "results\\caro_ai_v2\\CaroAgent.onnx",
+            "reward": -0.9988170386926318,
+            "creation_time": 1782096859.8724277,
+            "auxillary_file_paths": [
+                "results\\caro_ai_v2\\CaroAgent\\CaroAgent-254237.pt"
+            ]
+        }
+    },
+    "metadata": {
+        "stats_format_version": "0.3.0",
+        "mlagents_version": "1.1.0",
+        "torch_version": "2.2.2+cpu"
+    }
+}

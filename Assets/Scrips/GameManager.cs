@@ -48,8 +48,10 @@ public class GameManager : NetworkBehaviour
     private NetworkVariable<PlayerType> currentPlayerType = new NetworkVariable<PlayerType>(PlayerType.None, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server); // Đồng bộ hóa trạng thái lượt chơi hiện tại
     private PlayerType[,] playerTypeArrray; // Mảng 2 chiều lưu trữ trạng thái bàn cờ
     private int moveCount = 0;
-    private const int BOARD_WIDTH = 30;
-    private const int BOARD_HEIGHT = 18;
+    private const int BOARD_WIDTH = 31;
+    private const int BOARD_HEIGHT = 19;
+    private ulong circleClientId = ulong.MaxValue;
+    private bool isAIGame;
 
     private NetworkVariable<int> playerCrossScore = new NetworkVariable<int>();
     private NetworkVariable<int> playerCircleScore = new NetworkVariable<int>();
@@ -168,6 +170,23 @@ public class GameManager : NetworkBehaviour
             localPlayerType = type;
             Debug.Log("Vai trò của bạn trong phòng này là: " + localPlayerType);
         }
+
+        if (NetworkManager.Singleton.ConnectedClientsList.Count != 2)
+        {
+            return;
+        }
+
+        foreach (var client in NetworkManager.Singleton.ConnectedClientsList)
+        {
+            if (client.ClientId != NetworkManager.ServerClientId)
+            {
+                circleClientId = client.ClientId;
+                break;
+            }
+        }
+
+        currentPlayerType.Value = PlayerType.Cross;
+        TriggerOnGameStartedRpc();
     }
 
     [Rpc(SendTo.ClientsAndHost)]
@@ -221,7 +240,7 @@ public class GameManager : NetworkBehaviour
         if (playerType != currentPlayerType.Value)
         {
             Debug.Log("It's not your turn!");
-            return;
+            return false;
         }
 
         if (!IsInBoard(x, y))

@@ -1,0 +1,65 @@
+{
+    "CaroAgent": {
+        "checkpoints": [
+            {
+                "steps": 249978,
+                "file_path": "results\\caro_ai_v2\\CaroAgent\\CaroAgent-249978.onnx",
+                "reward": -1.1309974353930672,
+                "creation_time": 1782360977.108965,
+                "auxillary_file_paths": [
+                    "results\\caro_ai_v2\\CaroAgent\\CaroAgent-249978.pt"
+                ]
+            },
+            {
+                "steps": 379628,
+                "file_path": "results\\caro_ai_v2\\CaroAgent\\CaroAgent-379628.onnx",
+                "reward": -0.23104165494441986,
+                "creation_time": 1782361744.9349432,
+                "auxillary_file_paths": [
+                    "results\\caro_ai_v2\\CaroAgent\\CaroAgent-379628.pt"
+                ]
+            },
+            {
+                "steps": 499994,
+                "file_path": "results\\caro_ai_v2\\CaroAgent\\CaroAgent-499994.onnx",
+                "reward": 0.4529385091736913,
+                "creation_time": 1782704392.4911633,
+                "auxillary_file_paths": [
+                    "results\\caro_ai_v2\\CaroAgent\\CaroAgent-499994.pt"
+                ]
+            },
+            {
+                "steps": 500235,
+                "file_path": "results\\caro_ai_v2\\CaroAgent\\CaroAgent-500235.onnx",
+                "reward": 0.45701883005020316,
+                "creation_time": 1782704531.530855,
+                "auxillary_file_paths": [
+                    "results\\caro_ai_v2\\CaroAgent\\CaroAgent-500235.pt"
+                ]
+            },
+            {
+                "steps": 543014,
+                "file_path": "results\\caro_ai_v2\\CaroAgent\\CaroAgent-543014.onnx",
+                "reward": 0.5178669403782852,
+                "creation_time": 1782705219.7035038,
+                "auxillary_file_paths": [
+                    "results\\caro_ai_v2\\CaroAgent\\CaroAgent-543014.pt"
+                ]
+            }
+        ],
+        "final_checkpoint": {
+            "steps": 543014,
+            "file_path": "results\\caro_ai_v2\\CaroAgent.onnx",
+            "reward": 0.5178669403782852,
+            "creation_time": 1782705219.7035038,
+            "auxillary_file_paths": [
+                "results\\caro_ai_v2\\CaroAgent\\CaroAgent-543014.pt"
+            ]
+        }
+    },
+    "metadata": {
+        "stats_format_version": "0.3.0",
+        "mlagents_version": "1.1.0",
+        "torch_version": "2.2.2+cpu"
+    }
+}
