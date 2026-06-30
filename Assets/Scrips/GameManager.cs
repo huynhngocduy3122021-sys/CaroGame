@@ -6,6 +6,9 @@ using Unity.Netcode;
 
 public class GameManager : NetworkBehaviour
 {
+    public const int BoardPointsX = 31;
+    public const int BoardPointsY = 19;
+
     public static GameManager Instance { get; private set; }
 
     // tạo 1 cái event để phát tham số x và y khi có 1 điểm bị click
@@ -46,8 +49,6 @@ public class GameManager : NetworkBehaviour
     private NetworkVariable<PlayerType> currentPlayerType = new NetworkVariable<PlayerType>(PlayerType.None , NetworkVariableReadPermission.Everyone , NetworkVariableWritePermission.Server); // sử dụng NetworkVariable để đồng bộ hóa trạng thái lượt chơi hiện tại giữa server và tất cả client, đảm bảo rằng mọi người chơi đều biết ai đang là người chơi hiện tại và có thể cập nhật giao diện người dùng hoặc thực hiện các hành động khác dựa trên thông tin này.
     private PlayerType[,] playerTypeArrray;// mảng 2 chiều để lưu trữ loại quân cờ (Cross hoặc Circle) đã được đặt ở mỗi vị trí trên bàn cờ, giúp theo dõi trạng thái của bàn cờ và xác định xem có ai đã thắng hay chưa dựa trên các quân cờ đã được đặt.
     private int moveCount = 0;
-    private const int BOARD_WIDTH = 31;
-    private const int BOARD_HEIGHT = 19;
     private ulong circleClientId = ulong.MaxValue;
     private bool isAIGame;
 
@@ -64,7 +65,7 @@ public class GameManager : NetworkBehaviour
         }
         Instance = this;
 
-        playerTypeArrray = new PlayerType[BOARD_WIDTH, BOARD_HEIGHT];
+        playerTypeArrray = new PlayerType[BoardPointsX, BoardPointsY];
     }
 
     public override void OnNetworkSpawn() // hàm này sẽ được gọi khi GameManager được spawn trên mạng, nó sẽ thiết lập loại người chơi cho mỗi client dựa trên client ID và đăng ký sự kiện để bắt đầu game khi đủ người chơi kết nối vào.
@@ -154,7 +155,7 @@ public class GameManager : NetworkBehaviour
 
     {
         Debug.Log("clickedOnGripPosition:" + x + ", " + y);
-        if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_HEIGHT)
+        if (x < 0 || x >= BoardPointsX || y < 0 || y >= BoardPointsY)
         {
             Debug.LogWarning($"Rejected out-of-range move ({x}, {y}).");
             return;
@@ -172,7 +173,7 @@ public class GameManager : NetworkBehaviour
 
     private bool TryPlaceMove(int x, int y, PlayerType playerType)
     {
-        if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_HEIGHT)
+        if (x < 0 || x >= BoardPointsX || y < 0 || y >= BoardPointsY)
         {
             Debug.LogWarning($"Rejected out-of-range move ({x}, {y}).");
             return false;
@@ -225,9 +226,9 @@ public class GameManager : NetworkBehaviour
 
         while(
             checkX >= 0 &&
-            checkX < BOARD_WIDTH &&
+            checkX < BoardPointsX &&
             checkY >= 0 &&
-            checkY < BOARD_HEIGHT &&
+            checkY < BoardPointsY &&
             playerTypeArrray[checkX, checkY] == playerType
         )
         {
@@ -287,7 +288,7 @@ public class GameManager : NetworkBehaviour
     }
     private void checkDraw()
 {
-    if (moveCount >= BOARD_WIDTH * BOARD_HEIGHT)
+    if (moveCount >= BoardPointsX * BoardPointsY)
     {
         Debug.Log("Draw!");
 
@@ -318,9 +319,9 @@ public class GameManager : NetworkBehaviour
 
     while (
         checkX >= 0 &&
-        checkX < BOARD_WIDTH &&
+        checkX < BoardPointsX &&
         checkY >= 0 &&
-        checkY < BOARD_HEIGHT &&
+        checkY < BoardPointsY &&
         playerTypeArrray[checkX, checkY] == playerType
     )
     {
@@ -337,9 +338,9 @@ public class GameManager : NetworkBehaviour
 
     while (
         checkX >= 0 &&
-        checkX < BOARD_WIDTH &&
+        checkX < BoardPointsX &&
         checkY >= 0 &&
-        checkY < BOARD_HEIGHT &&
+        checkY < BoardPointsY &&
         playerTypeArrray[checkX, checkY] == playerType
     )
     {

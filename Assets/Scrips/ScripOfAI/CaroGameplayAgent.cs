@@ -12,8 +12,8 @@ using Unity.MLAgents.Policies;
 [RequireComponent(typeof(BehaviorParameters))]
 public class CaroGameplayAgent : Agent
 {
-    private const int PointsX = 31;
-    private const int PointsY = 19;
+    private const int PointsX = GameManager.BoardPointsX;
+    private const int PointsY = GameManager.BoardPointsY;
     public const int TotalPoints = PointsX * PointsY;
 
     private readonly int[,] board = new int[PointsX, PointsY];
@@ -85,6 +85,12 @@ public class CaroGameplayAgent : Agent
     public override void OnActionReceived(ActionBuffers actions)
     {
         waitingForDecision = false;
+
+        if (gameManager == null ||
+            gameManager.GetCurrentPlayerType() != GameManager.PlayerType.Circle)
+        {
+            return;
+        }
 
         int action = actions.DiscreteActions[0];
         int x = action % PointsX;
@@ -252,16 +258,35 @@ public class CaroGameplayAgent : Agent
         object sender,
         GameManager.OnGripPositionClickedEventArgs eventArgs)
     {
+        if (!IsInBounds(eventArgs.x, eventArgs.y))
+        {
+            Debug.LogWarning($"Ignoring out-of-range board update ({eventArgs.x}, {eventArgs.y}).");
+            return;
+        }
+
         board[eventArgs.x, eventArgs.y] =
             eventArgs.playerType == GameManager.PlayerType.Circle ? 1 : -1;
 
         if (eventArgs.playerType == GameManager.PlayerType.Cross &&
-            gameManager.GetCurrentPlayerType() != GameManager.PlayerType.None &&
             !waitingForDecision)
         {
             waitingForDecision = true;
-            RequestDecision();
+            StartCoroutine(RequestDecisionAfterGameManagerSettles());
         }
+    }
+
+    private System.Collections.IEnumerator RequestDecisionAfterGameManagerSettles()
+    {
+        yield return null;
+
+        if (gameManager == null ||
+            gameManager.GetCurrentPlayerType() != GameManager.PlayerType.Circle)
+        {
+            waitingForDecision = false;
+            yield break;
+        }
+
+        RequestDecision();
     }
 
     // OnRematch: Khởi động lại trạng thái bàn cờ của AI khi người chơi chọn chơi ván mới
@@ -273,9 +298,14 @@ public class CaroGameplayAgent : Agent
 
     private bool IsEmpty(int x, int y)
     {
-        return x >= 0 && x < PointsX &&
-               y >= 0 && y < PointsY &&
+        return IsInBounds(x, y) &&
                board[x, y] == 0;
+    }
+
+    private bool IsInBounds(int x, int y)
+    {
+        return x >= 0 && x < PointsX &&
+               y >= 0 && y < PointsY;
     }
 
     private bool[,] BuildAllowedMoveMask()
