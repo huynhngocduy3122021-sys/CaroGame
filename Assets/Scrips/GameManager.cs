@@ -4,6 +4,9 @@ using Unity.Netcode;
 
 public class GameManager : NetworkBehaviour
 {
+    public const int BoardPointsX = 31;
+    public const int BoardPointsY = 19;
+
     public static GameManager Instance { get; private set; }
 
     // Tạo 1 cái event để phát tham số x và y khi có 1 điểm bị click
@@ -48,8 +51,6 @@ public class GameManager : NetworkBehaviour
     private NetworkVariable<PlayerType> currentPlayerType = new NetworkVariable<PlayerType>(PlayerType.None, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server); // Đồng bộ hóa trạng thái lượt chơi hiện tại
     private PlayerType[,] playerTypeArrray; // Mảng 2 chiều lưu trữ trạng thái bàn cờ
     private int moveCount = 0;
-    private const int BOARD_WIDTH = 31;
-    private const int BOARD_HEIGHT = 19;
     private ulong circleClientId = ulong.MaxValue;
     private bool isAIGame;
 
@@ -63,7 +64,8 @@ public class GameManager : NetworkBehaviour
     private void Awake()
     {
         Instance = this;
-        playerTypeArrray = new PlayerType[BOARD_WIDTH + 1, BOARD_HEIGHT + 1];
+
+        playerTypeArrray = new PlayerType[BoardPointsX, BoardPointsY];
     }
 
     public override void OnNetworkSpawn() // Hàm này sẽ được gọi khi GameManager được spawn trên mạng
@@ -197,7 +199,8 @@ public class GameManager : NetworkBehaviour
 
     private void RefreshLobbyPlayerCount()
     {
-        if (!IsServer || NetworkManager.Singleton == null)
+        Debug.Log("clickedOnGripPosition:" + x + ", " + y);
+        if (x < 0 || x >= BoardPointsX || y < 0 || y >= BoardPointsY)
         {
             return;
         }
@@ -217,9 +220,7 @@ public class GameManager : NetworkBehaviour
     // Hàm này sẽ được gán vào Nút "START GAME" trên UI Lobby (Chỉ Host bấm được)
     public void StartGameFromLobby()
     {
-        if (!IsServer) return;
-
-        if (NetworkManager.Singleton.ConnectedClientsList.Count >= 2)
+        if (x < 0 || x >= BoardPointsX || y < 0 || y >= BoardPointsY)
         {
             isGameStarted.Value = true;
             currentPlayerType.Value = PlayerType.Cross; // Đặt lượt chơi đầu tiên là Cross
@@ -290,8 +291,11 @@ public class GameManager : NetworkBehaviour
         int checkX = x + dirX;
         int checkY = y + dirY;
 
-        while (
-            IsInBoard(checkX, checkY) &&
+        while(
+            checkX >= 0 &&
+            checkX < BoardPointsX &&
+            checkY >= 0 &&
+            checkY < BoardPointsY &&
             playerTypeArrray[checkX, checkY] == playerType
         )
         {
@@ -351,6 +355,8 @@ public class GameManager : NetworkBehaviour
     }
 
     private void checkDraw()
+{
+    if (moveCount >= BoardPointsX * BoardPointsY)
     {
         if (moveCount >= (BOARD_WIDTH + 1) * (BOARD_HEIGHT + 1))
         {
@@ -363,15 +369,49 @@ public class GameManager : NetworkBehaviour
     [Rpc(SendTo.ClientsAndHost)]
     private void TriggerOnGameWinRpc(Vector2Int centerPos, Orientation orientation, PlayerType playerWinType)
     {
-        OnGameWin?.Invoke(this, new OnGameWinEventArgs
-        {
-            centerGridposition = centerPos,
-            orientation = orientation,
-            playerWinType = playerWinType
-        });
+         OnGameWin?.Invoke(this, new OnGameWinEventArgs { 
+                centerGridposition = centerPos,
+                orientation = orientation,
+                playerWinType = playerWinType
+                 });
+    }
+   private Vector2Int GetWinCenter(int x, int y, int dirX, int dirY, PlayerType playerType)
+{
+    int minX = x;
+    int minY = y;
+    int maxX = x;
+    int maxY = y;
+
+    // Đi về một phía
+    int checkX = x + dirX;
+    int checkY = y + dirY;
+
+    while (
+        checkX >= 0 &&
+        checkX < BoardPointsX &&
+        checkY >= 0 &&
+        checkY < BoardPointsY &&
+        playerTypeArrray[checkX, checkY] == playerType
+    )
+    {
+        maxX = checkX;
+        maxY = checkY;
+
+        checkX += dirX;
+        checkY += dirY;
     }
 
-    private Vector2Int GetWinCenter(int x, int y, int dirX, int dirY, PlayerType playerType)
+    // Đi về phía ngược lại
+    checkX = x - dirX;
+    checkY = y - dirY;
+
+    while (
+        checkX >= 0 &&
+        checkX < BoardPointsX &&
+        checkY >= 0 &&
+        checkY < BoardPointsY &&
+        playerTypeArrray[checkX, checkY] == playerType
+    )
     {
         int minX = x;
         int minY = y;
