@@ -66,7 +66,7 @@ public class PlayerUI : MonoBehaviour
         {
             crossYouTextGameObject.SetActive(true);
         }
-        else
+        else if(GameManager.Instance.GetLocalPlayerType() == GameManager.PlayerType.Circle)
         {
             circleYouTextGameObject.SetActive(true);
         }
@@ -83,7 +83,7 @@ public class PlayerUI : MonoBehaviour
             crossArrowGameObject.SetActive(true);
             circleArrowGameObject.SetActive(false);
         }
-        else if(currentPlayer == GameManager.PlayerType.Circle)
+        else if(GameManager.Instance.GetCurrentPlayerType() == GameManager.PlayerType.Circle)
         {
             crossArrowGameObject.SetActive(false);
             circleArrowGameObject.SetActive(true);
