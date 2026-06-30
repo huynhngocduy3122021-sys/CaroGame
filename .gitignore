@@ -14,6 +14,7 @@ venv/
 
 
 *.onnx
+!Assets/Models/**/*.onnx
 
 *.csproj
 *.sln
