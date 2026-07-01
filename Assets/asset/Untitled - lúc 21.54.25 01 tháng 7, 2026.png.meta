@@ -1,10 +1,10 @@
 fileFormatVersion: 2
-guid: 6e14fc624bc3b1b4bbd510ed997f4fc0
+guid: 40513168fa8703e4097fce764a70262f
 TextureImporter:
   internalIDToNameTable:
   - first:
-      213: 7505612761898521250
-    second: soundon_0
+      213: -293502530795170285
+    second: "Untitled - l\xFAc 21.54.25 01 th\xE1ng 7, 2026_0"
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -96,17 +96,30 @@ TextureImporter:
     ignorePlatformSupport: 0
     androidETC2FallbackOverride: 0
     forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 4
+    buildTarget: WebGL
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
   spriteSheet:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: soundon_0
+      name: "Untitled - l\xFAc 21.54.25 01 th\xE1ng 7, 2026_0"
       rect:
         serializedVersion: 2
-        x: 1150
-        y: 82
-        width: 1026
-        height: 1137
+        x: 150
+        y: 104
+        width: 2198
+        height: 1409
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -115,8 +128,8 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 2a2999e5a0b492860800000000000000
-      internalID: 7505612761898521250
+      spriteID: 3169647d0054debf0800000000000000
+      internalID: -293502530795170285
       vertices: []
       indices: 
       edges: []
@@ -135,7 +148,7 @@ TextureImporter:
     spriteCustomMetadata:
       entries: []
     nameFileIdTable:
-      soundon_0: 7505612761898521250
+      "Untitled - l\xFAc 21.54.25 01 th\xE1ng 7, 2026_0": -293502530795170285
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 
