@@ -88,6 +88,9 @@ public class GameManager : NetworkBehaviour
 
         localPlayerType = GetLocalPlayerType();
         OnScoreChanged?.Invoke(this, EventArgs.Empty);
+
+        // Đăng ký lắng nghe sự kiện click từ BoardPoint
+        BoardPoint.OnPointClicked += BoardPoint_OnPointClicked;
     }
 
     public override void OnNetworkDespawn()
@@ -104,8 +107,25 @@ public class GameManager : NetworkBehaviour
         playerCircleScore.OnValueChanged -= Score_OnValueChanged;
         isGameStarted.OnValueChanged -= IsGameStarted_OnValueChanged;
         circleClientId.OnValueChanged -= CircleClientId_OnValueChanged;
+
+        // Hủy đăng ký khi GameManager bị hủy để tránh lỗi memory leak
+        BoardPoint.OnPointClicked -= BoardPoint_OnPointClicked;
     }
 
+    private void BoardPoint_OnPointClicked(int clickX, int clickY)
+    {
+        // Đưa logic kiểm tra từ BoardPoint cũ về đúng nơi quản lý của nó
+        if (!IsGameActive() || GetLocalPlayerType() == PlayerType.None)
+        {
+            Debug.Log("GameManager: Click ignored due to game inactive or player is None.");
+            return;
+        }
+
+        Debug.Log($"GameManager: Processing click at ({clickX}, {clickY}) | CurrentTurn: {GetCurrentPlayerType()}");
+        
+        // Gọi hàm RPC hiện tại của bạn
+        clickedOnGripPositionRpc(clickX, clickY);
+    }
     private void LobbyPlayerCount_OnValueChanged(int oldCount, int newCount)
     {
         OnLobbyPlayersChanged?.Invoke(this, EventArgs.Empty);
@@ -304,66 +324,7 @@ public class GameManager : NetworkBehaviour
 
         return true;
     }
-
-    private bool checkLine(int x, int y, int dirX, int dirY, PlayerType playerType)
-    {
-        int count = 1;
-        count += CountInDirection(x, y, dirX, dirY, playerType);
-        count += CountInDirection(x, y, -dirX, -dirY, playerType);
-        return count >= 5;
-    }
-
-    private int CountInDirection(int x, int y, int dirX, int dirY, PlayerType playerType)
-    {
-        int count = 0;
-        int checkX = x + dirX;
-        int checkY = y + dirY;
-
-        while (
-            checkX >= 0 &&
-            checkX < BoardPointsX &&
-            checkY >= 0 &&
-            checkY < BoardPointsY &&
-            playerTypeArrray[checkX, checkY] == playerType
-        )
-        {
-            count++;
-            checkX += dirX;
-            checkY += dirY;
-        }
-
-        return count;
-    }
-
-    private void testWinner(int x, int y)
-    {
-        PlayerType playerType = playerTypeArrray[x, y];
-        if (playerType == PlayerType.None)
-        {
-            return;
-        }
-
-        if (checkLine(x, y, 1, 0, playerType))
-        {
-            win(GetWinCenter(x, y, 1, 0, playerType), Orientation.Horizontal);
-        }
-        else if (checkLine(x, y, 0, 1, playerType))
-        {
-            win(GetWinCenter(x, y, 0, 1, playerType), Orientation.Vertical);
-        }
-        else if (checkLine(x, y, 1, 1, playerType))
-        {
-            win(GetWinCenter(x, y, 1, 1, playerType), Orientation.DiagonalA);
-        }
-        else if (checkLine(x, y, 1, -1, playerType))
-        {
-            win(GetWinCenter(x, y, 1, -1, playerType), Orientation.DiagonalB);
-        }
-        else
-        {
-            checkDraw();
-        }
-    }
+    
 
     private void win(Vector2Int centerPos, Orientation orientation)
     {
@@ -403,48 +364,22 @@ public class GameManager : NetworkBehaviour
         });
     }
 
-    private Vector2Int GetWinCenter(int x, int y, int dirX, int dirY, PlayerType playerType)
+    private void testWinner(int x, int y)
     {
-        int minX = x;
-        int minY = y;
-        int maxX = x;
-        int maxY = y;
+        // Gọi sang class MatchRules để tính toán xem ván cờ đã kết thúc chưa
+        int maxMoves = BoardPointsX * BoardPointsY;
+        WinResult result = MatchRules.CheckMatchStatus(playerTypeArrray, x, y, moveCount, maxMoves);
 
-        int checkX = x + dirX;
-        int checkY = y + dirY;
-
-        while (
-            checkX >= 0 &&
-            checkX < BoardPointsX &&
-            checkY >= 0 &&
-            checkY < BoardPointsY &&
-            playerTypeArrray[checkX, checkY] == playerType
-        )
+        if (result.isWin)
         {
-            maxX = checkX;
-            maxY = checkY;
-            checkX += dirX;
-            checkY += dirY;
+            // Gọi hàm win cũ của bạn để cộng điểm và đẩy RPC
+            win(result.centerPos, result.orientation);
         }
-
-        checkX = x - dirX;
-        checkY = y - dirY;
-
-        while (
-            checkX >= 0 &&
-            checkX < BoardPointsX &&
-            checkY >= 0 &&
-            checkY < BoardPointsY &&
-            playerTypeArrray[checkX, checkY] == playerType
-        )
+        else if (result.isDraw)
         {
-            minX = checkX;
-            minY = checkY;
-            checkX -= dirX;
-            checkY -= dirY;
+            // Gọi hàm checkDraw cũ của bạn
+            checkDraw();
         }
-
-        return new Vector2Int((minX + maxX) / 2, (minY + maxY) / 2);
     }
 
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]

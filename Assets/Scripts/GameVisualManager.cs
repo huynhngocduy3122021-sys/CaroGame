@@ -1,5 +1,6 @@
 using UnityEngine;
 using Unity.Netcode;
+using System.Collections;
 using System.Collections.Generic;
 
 public class GameVisualManager : NetworkBehaviour
@@ -8,35 +9,33 @@ public class GameVisualManager : NetworkBehaviour
     [SerializeField] private Transform circlePrefab;
     [SerializeField] private Transform linCompletePrefab;
 
-
     [SerializeField] private int width = 30;
     [SerializeField] private int height = 18;
     [SerializeField] private float cellSize = 0.45f;
     [SerializeField] private float cameraSize = 7.5f;
     [SerializeField] private float topUiRatio = 0.1f;
-    
-    private List<GameObject> visualGameObjectList = new List<GameObject>();
-    private void Awake()
-    {
-        visualGameObjectList = new List<GameObject>();
-    }
+
+    // Tách riêng danh sách lưu đường kẻ (khi thắng) và Dictionary lưu quân cờ
+    private List<GameObject> winLinesList = new List<GameObject>();
+    private Dictionary<Vector2Int, GameObject> pieceDictionary = new Dictionary<Vector2Int, GameObject>();
 
     private GameObject lastMoveHighlight;
+    private Coroutine highlightCoroutine;
 
     private void Start()
     {
-       GameManager.Instance.OnGripPositionClicked += GameManager_OnGripPositionClicked;
-       GameManager.Instance.OnGameWin += GameManager_OnGameWin;
-       GameManager.Instance.OnRematch += GameManager_OnRematch;
+        GameManager.Instance.OnGripPositionClicked += GameManager_OnGripPositionClicked;
+        GameManager.Instance.OnGameWin += GameManager_OnGameWin;
+        GameManager.Instance.OnRematch += GameManager_OnRematch;
 
-       if (GameManager.Instance.lastMovePosition != null)
-       {
-           GameManager.Instance.lastMovePosition.OnValueChanged += LastMovePosition_OnValueChanged;
-           if (GameManager.Instance.lastMovePosition.Value.x != -1)
-           {
-               LastMovePosition_OnValueChanged(Vector2Int.zero, GameManager.Instance.lastMovePosition.Value);
-           }
-       }
+        if (GameManager.Instance.lastMovePosition != null)
+        {
+            GameManager.Instance.lastMovePosition.OnValueChanged += LastMovePosition_OnValueChanged;
+            if (GameManager.Instance.lastMovePosition.Value.x != -1)
+            {
+                LastMovePosition_OnValueChanged(Vector2Int.zero, GameManager.Instance.lastMovePosition.Value);
+            }
+        }
     }
 
     private void OnDestroy()
@@ -46,7 +45,7 @@ public class GameVisualManager : NetworkBehaviour
             GameManager.Instance.OnGripPositionClicked -= GameManager_OnGripPositionClicked;
             GameManager.Instance.OnGameWin -= GameManager_OnGameWin;
             GameManager.Instance.OnRematch -= GameManager_OnRematch;
-            
+
             if (GameManager.Instance.lastMovePosition != null)
             {
                 GameManager.Instance.lastMovePosition.OnValueChanged -= LastMovePosition_OnValueChanged;
@@ -54,29 +53,45 @@ public class GameVisualManager : NetworkBehaviour
         }
     }
 
-    private Coroutine highlightCoroutine;
-
-    private GameObject FindPieceAtPosition(Vector3 position)
+    // TỐI ƯU HÓA: Tìm quân cờ tốc độ cao
+    private GameObject FindPieceAtPosition(Vector2Int gridPos, Vector3 worldPos)
     {
-        NetworkObject[] netObjects = FindObjectsOfType<NetworkObject>();
-        foreach (NetworkObject netObj in netObjects)
+        // 1. Nếu là Server, lấy ngay lập tức từ Dictionary (Độ phức tạp O(1))
+        if (pieceDictionary.TryGetValue(gridPos, out GameObject piece))
         {
-            if ((netObj.name.Contains("Cicle") || netObj.name.Contains("Cross")) &&
-                Vector3.Distance(netObj.transform.position, position) < 0.01f)
+            return piece;
+        }
+
+        // 2. Nếu là Client (chưa có trong Dictionary do Server spawn)
+        // Dùng danh sách object đã spawn của Netcode thay vì FindObjectsOfType toàn bộ scene
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.SpawnManager != null)
+        {
+            foreach (var kvp in NetworkManager.Singleton.SpawnManager.SpawnedObjects)
             {
-                return netObj.gameObject;
+                NetworkObject netObj = kvp.Value;
+                // Chỉ kiểm tra vị trí, bỏ hoàn toàn so sánh chuỗi (string matching)
+                if (Vector3.Distance(netObj.transform.position, worldPos) < 0.01f)
+                {
+                    // Lưu lại vào Dictionary để Client không cần quét lại lần sau
+                    pieceDictionary[gridPos] = netObj.gameObject;
+                    return netObj.gameObject;
+                }
             }
         }
+
         return null;
     }
 
-    private System.Collections.IEnumerator AddPieceVisualWithRetry(Vector3 worldPos)
+    private IEnumerator AddPieceVisualWithRetry(Vector2Int gridPos, Vector3 worldPos)
     {
         float timeout = 1.0f;
         float elapsed = 0f;
+
         while (elapsed < timeout)
         {
-            GameObject piece = FindPieceAtPosition(worldPos);
+            // Gọi hàm tìm kiếm mới được tối ưu
+            GameObject piece = FindPieceAtPosition(gridPos, worldPos);
+
             if (piece != null)
             {
                 if (piece.GetComponent<PieceVisual>() == null)
@@ -85,6 +100,7 @@ public class GameVisualManager : NetworkBehaviour
                 }
                 yield break;
             }
+
             elapsed += Time.deltaTime;
             yield return null;
         }
@@ -103,8 +119,8 @@ public class GameVisualManager : NetworkBehaviour
 
         Vector2 worldPos = GetGripPosition(newVal.x, newVal.y);
 
-        // Run the springy pop-in animation on the piece
-        StartCoroutine(AddPieceVisualWithRetry(worldPos));
+        // Truyền thêm toạ độ lưới (newVal) để hàm tìm kiếm hoạt động với Dictionary
+        StartCoroutine(AddPieceVisualWithRetry(newVal, worldPos));
 
         GameManager.PlayerType lastPlayerType = GameManager.Instance.GetPlayerTypeAtPosition(newVal.x, newVal.y);
 
@@ -119,7 +135,7 @@ public class GameVisualManager : NetworkBehaviour
         {
             Sprite spriteToUse = null;
             Transform prefabToUse = (lastPlayerType == GameManager.PlayerType.Cross) ? crossPrefab : circlePrefab;
-            
+
             if (prefabToUse != null)
             {
                 Transform spriteChild = prefabToUse.Find("Sprite");
@@ -133,10 +149,8 @@ public class GameVisualManager : NetworkBehaviour
                 }
             }
             sr.sprite = spriteToUse;
-            
-            // Beautiful glowing orange/gold ring that borders the piece
             sr.color = new Color(1f, 0.65f, 0f, 0.7f);
-            sr.sortingOrder = 3; // Render on top of the piece (sortingOrder 2)
+            sr.sortingOrder = 3;
         }
 
         lastMoveHighlight.SetActive(true);
@@ -149,7 +163,7 @@ public class GameVisualManager : NetworkBehaviour
         highlightCoroutine = StartCoroutine(AnimateHighlightBounceAndPulse());
     }
 
-    private System.Collections.IEnumerator AnimateHighlightBounceAndPulse()
+    private IEnumerator AnimateHighlightBounceAndPulse()
     {
         if (lastMoveHighlight == null) yield break;
 
@@ -158,12 +172,12 @@ public class GameVisualManager : NetworkBehaviour
         Vector3 startScale = new Vector3(0.18f, 0.18f, 1f);
         Vector3 endScale = new Vector3(0.11f, 0.11f, 1f);
 
-        // 1. Initial springy bounce-in
         while (elapsed < bounceDuration)
         {
             elapsed += Time.deltaTime;
             float t = elapsed / bounceDuration;
-            float ease = 1f - Mathf.Pow(1f - t, 4f); // easeOutQuart
+            float ease = 1f - Mathf.Pow(1f - t, 4f);
+
             if (lastMoveHighlight != null)
             {
                 lastMoveHighlight.transform.localScale = Vector3.Lerp(startScale, endScale, ease);
@@ -176,19 +190,17 @@ public class GameVisualManager : NetworkBehaviour
             lastMoveHighlight.transform.localScale = endScale;
         }
 
-        // 2. Continuous glow pulse animation
         float pulseDuration = 1.5f;
         float pulseElapsed = 0f;
+
         while (lastMoveHighlight != null && lastMoveHighlight.activeSelf)
         {
             pulseElapsed += Time.deltaTime;
             float t = (pulseElapsed % pulseDuration) / pulseDuration;
-            float pulseValue = Mathf.Sin(t * 2f * Mathf.PI); // -1 to 1
+            float pulseValue = Mathf.Sin(t * 2f * Mathf.PI);
 
-            // Scale oscillates slightly
             lastMoveHighlight.transform.localScale = endScale * (1.0f + pulseValue * 0.15f);
 
-            // Opacity oscillates slightly
             SpriteRenderer sr = lastMoveHighlight.GetComponent<SpriteRenderer>();
             if (sr != null)
             {
@@ -196,33 +208,55 @@ public class GameVisualManager : NetworkBehaviour
                 c.a = Mathf.Lerp(0.4f, 0.85f, (pulseValue + 1f) / 2f);
                 sr.color = c;
             }
-
             yield return null;
         }
     }
+
     private void GameManager_OnRematch(object sender, System.EventArgs e)
     {
-        if(!NetworkManager.Singleton.IsServer)
+        if (!NetworkManager.Singleton.IsServer)
         {
             return;
-         }
-        foreach (GameObject visualGameOBJ in visualGameObjectList)
+        }
+
+        // Dọn dẹp đường thẳng hiển thị khi thắng
+        foreach (GameObject lineObj in winLinesList)
         {
-                if (visualGameOBJ == null) continue;
-
-                NetworkObject networkObject = visualGameOBJ.GetComponent<NetworkObject>();
-
+            if (lineObj != null)
+            {
+                NetworkObject networkObject = lineObj.GetComponent<NetworkObject>();
                 if (networkObject != null && networkObject.IsSpawned)
                 {
                     networkObject.Despawn(true);
                 }
                 else
                 {
-                    Destroy(visualGameOBJ);
+                    Destroy(lineObj);
                 }
+            }
         }
-        visualGameObjectList.Clear();
+        winLinesList.Clear();
+
+        // Dọn dẹp toàn bộ quân cờ
+        foreach (var kvp in pieceDictionary)
+        {
+            GameObject pieceObj = kvp.Value;
+            if (pieceObj != null)
+            {
+                NetworkObject networkObject = pieceObj.GetComponent<NetworkObject>();
+                if (networkObject != null && networkObject.IsSpawned)
+                {
+                    networkObject.Despawn(true);
+                }
+                else
+                {
+                    Destroy(pieceObj);
+                }
+            }
+        }
+        pieceDictionary.Clear();
     }
+
     private void GameManager_OnGameWin(object sender, GameManager.OnGameWinEventArgs e)
     {
         if (!IsServer || e.playerWinType == GameManager.PlayerType.None)
@@ -251,45 +285,35 @@ public class GameVisualManager : NetworkBehaviour
         }
 
         networkObject.Spawn(true);
-
-        visualGameObjectList.Add(lineTransform.gameObject);
-      
+        winLinesList.Add(lineTransform.gameObject);
     }
+
     private Quaternion GetWinLineRotation(GameManager.Orientation orientation)
     {
-        switch(orientation)
+        switch (orientation)
         {
-            case GameManager.Orientation.Horizontal:
-                return Quaternion.Euler(0, 0, 0);
-            case GameManager.Orientation.Vertical:
-                return Quaternion.Euler(0, 0, 90);
-            case GameManager.Orientation.DiagonalA:
-                return Quaternion.Euler(0, 0, 45);
-            case GameManager.Orientation.DiagonalB:
-                return Quaternion.Euler(0, 0, -45);
-            default:
-                Debug.LogError("Invalid orientation");
-                return Quaternion.identity;
+            case GameManager.Orientation.Horizontal: return Quaternion.Euler(0, 0, 0);
+            case GameManager.Orientation.Vertical: return Quaternion.Euler(0, 0, 90);
+            case GameManager.Orientation.DiagonalA: return Quaternion.Euler(0, 0, 45);
+            case GameManager.Orientation.DiagonalB: return Quaternion.Euler(0, 0, -45);
+            default: return Quaternion.identity;
         }
     }
+
     private void GameManager_OnGripPositionClicked(object sender, GameManager.OnGripPositionClickedEventArgs e)
     {
-        Debug.Log("GameManager_OnGripPositionClicked:" + e.x + ", " + e.y);
         if (!IsServer)
         {
             return;
         }
-
         SpawnObject(e.x, e.y, e.playerType);
     }
 
     private void SpawnObject(int x, int y, GameManager.PlayerType playerType)
     {
-        Debug.Log("SpawnObject:" + x + ", " + y);
         Transform preFabs;
-        switch(playerType)
+        switch (playerType)
         {
-            
             case GameManager.PlayerType.Cross:
                 preFabs = crossPrefab;
                 break;
@@ -300,8 +324,10 @@ public class GameVisualManager : NetworkBehaviour
                 Debug.LogError("Invalid player type");
                 return;
         }
-        Transform instantiatedPrefab = Instantiate(preFabs , GetGripPosition(x, y), Quaternion.identity);
+
+        Transform instantiatedPrefab = Instantiate(preFabs, GetGripPosition(x, y), Quaternion.identity);
         NetworkObject networkObject = instantiatedPrefab.GetComponent<NetworkObject>();
+
         if (networkObject == null)
         {
             Debug.LogError($"Prefab {preFabs.name} is missing NetworkObject.");
@@ -310,19 +336,18 @@ public class GameVisualManager : NetworkBehaviour
         }
 
         networkObject.Spawn(true);
-        visualGameObjectList.Add(instantiatedPrefab.gameObject);
-        
+        // Lưu quân cờ vào Dictionary ngay khi vừa tạo ra
+        pieceDictionary[new Vector2Int(x, y)] = instantiatedPrefab.gameObject;
     }
-    private Vector2 GetGripPosition(int x, int y) // lấy vị trí grip dựa trên x, y và các thông số của board để tính toán vị trí chính xác
-    {
-         float worldHeight = cameraSize * 2f;
-        float topSpace = worldHeight * topUiRatio;
 
+    private Vector2 GetGripPosition(int x, int y)
+    {
+        float worldHeight = cameraSize * 2f;
+        float topSpace = worldHeight * topUiRatio;
         float boardWidth = width * cellSize;
         float boardHeight = height * cellSize;
 
         float startX = -boardWidth / 2f;
-
         float boardAreaCenterY = -topSpace / 2f;
         float startY = boardAreaCenterY - boardHeight / 2f;
 
@@ -330,6 +355,5 @@ public class GameVisualManager : NetworkBehaviour
             startX + x * cellSize,
             startY + y * cellSize
         );
-    
     }
 }
