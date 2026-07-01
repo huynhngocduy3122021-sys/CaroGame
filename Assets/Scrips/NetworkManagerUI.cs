@@ -6,6 +6,9 @@ using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
 using UnityEngine;
 using UnityEngine.UI;
+using Unity.InferenceEngine;
+using Unity.MLAgents.Actuators;
+using Unity.MLAgents.Policies;
 
 public class NetworkManagerUI : MonoBehaviour
 {
@@ -15,6 +18,7 @@ public class NetworkManagerUI : MonoBehaviour
     [SerializeField] private TMP_InputField inviteInputField;
     [SerializeField] private TMP_InputField portInputField;
     [SerializeField] private TextMeshProUGUI connectionStatusText;
+    [SerializeField] private ModelAsset aiModel;
 
     [Header("Lobby")]
     [SerializeField] private GameObject connectionPanel;
@@ -51,7 +55,11 @@ public class NetworkManagerUI : MonoBehaviour
 
         WireUIEvents();
         SubscribeNetworkCallbacks();
-        ShowConnectionPanel("Tạo phòng mới hoặc nhập mã mời để tham gia.");
+
+        if (GameStartSettings.StartMode != GameStartSettings.Mode.Single && GameStartSettings.StartMode != GameStartSettings.Mode.Host)
+        {
+            ShowConnectionPanel("Tạo phòng mới hoặc nhập mã mời để tham gia.");
+        }
     }
 
     private void Start()
@@ -61,6 +69,43 @@ public class NetworkManagerUI : MonoBehaviour
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
         {
             ShowLobbyPanel("Đã kết nối lobby.");
+            return;
+        }
+
+        // Auto-action based on start mode
+        switch (GameStartSettings.StartMode)
+        {
+            case GameStartSettings.Mode.Host:
+                StartHost();
+                break;
+            case GameStartSettings.Mode.Join:
+                ShowConnectionPanel("Nhập mã mời để tham gia sảnh caro.");
+                break;
+            case GameStartSettings.Mode.Single:
+                // Start Host first to enable Netcode server role, then start AI mode when ready
+                if (CanStartNetwork())
+                {
+                    if (TryReadPort(out currentPort))
+                    {
+                        unityTransport.SetConnectionData(DefaultClientAddress, currentPort, HostListenAddress);
+                        currentInviteAddress = GetLocalIPv4Address();
+
+                        bool started = NetworkManager.Singleton.StartHost();
+                        if (started)
+                        {
+                            ShowGameplayPanel();
+                            StartCoroutine(StartAIGameWhenReady());
+                        }
+                        else
+                        {
+                            ShowConnectionPanel("Không thể khởi động chế độ chơi với AI.");
+                        }
+                    }
+                }
+                break;
+            default:
+                ShowConnectionPanel("Tạo phòng mới hoặc nhập mã mời để tham gia.");
+                break;
         }
     }
 
@@ -268,7 +313,18 @@ public class NetworkManagerUI : MonoBehaviour
             NetworkManager.Singleton.Shutdown();
         }
 
-        ShowConnectionPanel("Đã rời lobby.");
+        if (GameStartSettings.StartMode == GameStartSettings.Mode.Single)
+        {
+            if (NetworkManager.Singleton != null)
+            {
+                Destroy(NetworkManager.Singleton.gameObject);
+            }
+            UnityEngine.SceneManagement.SceneManager.LoadScene("StartGame");
+        }
+        else
+        {
+            ShowConnectionPanel("Đã rời lobby.");
+        }
     }
 
     private bool CanStartNetwork()
@@ -405,6 +461,10 @@ public class NetworkManagerUI : MonoBehaviour
 
         if (clientId == NetworkManager.Singleton.LocalClientId)
         {
+            if (GameStartSettings.StartMode == GameStartSettings.Mode.Single)
+            {
+                return;
+            }
             ShowConnectionPanel("Mất kết nối lobby.");
             return;
         }
@@ -506,23 +566,28 @@ public class NetworkManagerUI : MonoBehaviour
         }
 
         int connectedCount = GetLobbyPlayerCount();
-        string info = "DANH SÁCH PHÒNG CHỜ\n";
+        string info = "<align=center><size=115%><color=#f59e0b><b>DANH SÁCH THÀNH VIÊN</b></color></size></align>\n\n";
 
         for (int i = 0; i < connectedCount; i++)
         {
-            if (i == 0) info += "- Người chơi 1 (X) [Host]\n";
-            else if (i == 1) info += "- Người chơi 2 (O)\n";
-            else info += "- Khán giả " + (i - 1) + " (đang xem)\n";
+            if (i == 0) info += "  <color=#f59e0b>★</color> <b>Người chơi 1 (X)</b> <color=#f59e0b>[CHỦ PHÒNG]</color>\n";
+            else if (i == 1) info += "  <color=#3b82f6>●</color> <b>Người chơi 2 (O)</b> <color=#3b82f6>[ĐÃ VÀO]</color>\n";
+            else info += $"  <color=#9ca3af>●</color> Khán giả {i - 1} (đang xem)\n";
         }
 
         if (connectedCount == 0)
         {
-            info += "- Đang đợi kết nối...\n";
+            info += "  <color=#ef4444>●</color> <color=#9ca3af><i>Đang chờ kết nối...</i></color>\n";
         }
 
         if (GameManager.Instance != null)
         {
-            info += "\nVai trò của bạn: " + FormatRole(GameManager.Instance.GetLocalPlayerType());
+            string roleColor = "#9ca3af";
+            var role = GameManager.Instance.GetLocalPlayerType();
+            if (role == GameManager.PlayerType.Cross) roleColor = "#f59e0b";
+            else if (role == GameManager.PlayerType.Circle) roleColor = "#3b82f6";
+            
+            info += $"\n<align=center><size=95%>Vai trò của bạn: <color={roleColor}><b>{FormatRole(role)}</b></color></size></align>";
         }
 
         playerStatusText.text = info;
@@ -538,20 +603,20 @@ public class NetworkManagerUI : MonoBehaviour
 
         if (!isHost)
         {
-            SetLobbyStatus("Đang đợi host bắt đầu game.");
+            SetLobbyStatus("<align=center><color=#9ca3af>Trạng thái trận đấu:</color>\n\n<size=115%><color=#fbbf24><b>ĐANG ĐỢI CHỦ PHÒNG</b></color></size></align>");
         }
         else if (connectedCount < 2)
         {
-            SetLobbyStatus("Gửi mã mời và đợi thêm 1 người chơi.");
+            SetLobbyStatus("<align=center><color=#9ca3af>Trạng thái trận đấu:</color>\n\n<size=115%><color=#ef4444><b>ĐANG ĐỢI NGƯỜI CHƠI THỨ 2</b></color></size></align>");
         }
         else
         {
-            SetLobbyStatus("Đủ người. Host có thể bắt đầu game.");
+            SetLobbyStatus("<align=center><color=#9ca3af>Trạng thái trận đấu:</color>\n\n<size=115%><color=#10b981><b>PHÒNG ĐÃ SẴN SÀNG!</b></color></size></align>");
         }
 
         if (inviteCodeText != null)
         {
-            inviteCodeText.text = "Mã mời: " + GetInviteCode();
+            inviteCodeText.text = "<b>Mã mời:</b> <color=#fbbf24>" + GetInviteCode() + "</color>";
         }
     }
 
@@ -621,6 +686,20 @@ public class NetworkManagerUI : MonoBehaviour
         return DefaultClientAddress;
     }
 
+    private Sprite GetGameBackgroundSprite()
+    {
+        GameObject bgObj = GameObject.Find("BackGround");
+        if (bgObj != null)
+        {
+            SpriteRenderer bgSR = bgObj.GetComponent<SpriteRenderer>();
+            if (bgSR != null)
+            {
+                return bgSR.sprite;
+            }
+        }
+        return null;
+    }
+
     private void BuildRuntimeUI()
     {
         for (int i = transform.childCount - 1; i >= 0; i--)
@@ -631,32 +710,112 @@ public class NetworkManagerUI : MonoBehaviour
         RectTransform rootRect = GetOrAddRectTransform(gameObject);
         Stretch(rootRect);
 
-        connectionPanel = CreateFullscreenPanel("ConnectionPanel", new Color(0.04f, 0.06f, 0.08f, 0.94f));
-        GameObject connectionBox = CreateBox("ConnectionBox", connectionPanel.transform, new Vector2(560f, 430f), Vector2.zero, new Color(0.12f, 0.15f, 0.18f, 0.96f));
+        // Warm organic board game colors matching StartGame
+        Color panelTint = new Color(0.09f, 0.08f, 0.07f, 0.93f);
+        Color boxBg = new Color(0.16f, 0.14f, 0.12f, 0.98f);
+        Color boxBorder = new Color(0.85f, 0.6f, 0.2f, 0.35f); // Elegant gold/amber outline
+        Color innerCardBg = new Color(0.1f, 0.09f, 0.08f, 0.95f);
+        Color innerCardBorder = new Color(0.35f, 0.28f, 0.22f, 0.6f);
+        Color goldColor = new Color(0.96f, 0.72f, 0.2f, 1f);
 
-        CreateText("Title", connectionBox.transform, "SẢNH CARO", 38f, TextAlignmentOptions.Center, new Vector2(460f, 60f), new Vector2(0f, 150f), Color.white);
-        inviteInputField = CreateInput(connectionBox.transform, "InviteInput", "IP:PORT, ví dụ 192.168.1.8:7777", new Vector2(410f, 48f), new Vector2(0f, 70f));
+        // 1. Connection Panel (Login Screen)
+        connectionPanel = CreateFullscreenPanel("ConnectionPanel", panelTint);
+        
+        // Glassmorphic outer container
+        GameObject connectionBox = CreateBox(
+            "ConnectionBox", 
+            connectionPanel.transform, 
+            new Vector2(580f, 440f), 
+            Vector2.zero, 
+            boxBg, 
+            boxBorder
+        );
+        var animBox = connectionBox.AddComponent<UIAnimate>();
+        animBox.animType = UIAnimate.AnimationType.CardPopIn;
+
+        var titleText = CreateText("Title", connectionBox.transform, "CARO ONLINE", 42f, TextAlignmentOptions.Center, new Vector2(460f, 60f), new Vector2(0f, 150f), goldColor);
+        titleText.fontStyle = FontStyles.Bold;
+        var animTitle = titleText.gameObject.AddComponent<UIAnimate>();
+        animTitle.animType = UIAnimate.AnimationType.TextGlowPulse;
+        
+        CreateText("Subtitle", connectionBox.transform, "HỆ THỐNG ĐẤU TRÍ THỜI GIAN THỰC", 13f, TextAlignmentOptions.Center, new Vector2(460f, 30f), new Vector2(0f, 110f), new Color(0.7f, 0.64f, 0.58f, 1f));
+
+        inviteInputField = CreateInput(connectionBox.transform, "InviteInput", "IP:PORT, ví dụ 192.168.1.8:7777", new Vector2(440f, 48f), new Vector2(0f, 50f));
         inviteInputField.text = DefaultClientAddress + ":" + currentPort;
-        portInputField = CreateInput(connectionBox.transform, "PortInput", "Port", new Vector2(180f, 44f), new Vector2(-115f, 8f));
-        startHostButton = CreateButton(connectionBox.transform, "HostButton", "Tạo phòng", new Vector2(190f, 50f), new Vector2(-105f, -65f), new Color(0.1f, 0.55f, 0.95f, 1f));
-        startClientButton = CreateButton(connectionBox.transform, "JoinButton", "Tham gia", new Vector2(190f, 50f), new Vector2(105f, -65f), new Color(0.15f, 0.7f, 0.45f, 1f));
-        connectionStatusText = CreateText("ConnectionStatus", connectionBox.transform, string.Empty, 20f, TextAlignmentOptions.Center, new Vector2(470f, 70f), new Vector2(0f, -155f), new Color(0.86f, 0.9f, 0.95f, 1f));
+        
+        portInputField = CreateInput(connectionBox.transform, "PortInput", "Port", new Vector2(200f, 44f), new Vector2(-120f, -10f));
+        
+        startHostButton = CreateButton(connectionBox.transform, "HostButton", "Tạo phòng mới", new Vector2(210f, 50f), new Vector2(-110f, -85f), new Color(0.85f, 0.55f, 0.15f, 1f));
+        var animHost = startHostButton.gameObject.AddComponent<UIAnimate>();
+        animHost.animType = UIAnimate.AnimationType.ButtonInteractive;
 
-        lobbyPanel = CreateFullscreenPanel("LobbyPanel", new Color(0.04f, 0.06f, 0.08f, 0.94f));
-        GameObject lobbyBox = CreateBox("LobbyBox", lobbyPanel.transform, new Vector2(590f, 500f), Vector2.zero, new Color(0.12f, 0.15f, 0.18f, 0.96f));
+        startClientButton = CreateButton(connectionBox.transform, "JoinButton", "Vào phòng chơi", new Vector2(210f, 50f), new Vector2(110f, -85f), new Color(0.1f, 0.55f, 0.35f, 1f));
+        var animJoin = startClientButton.gameObject.AddComponent<UIAnimate>();
+        animJoin.animType = UIAnimate.AnimationType.ButtonInteractive;
+        
+        connectionStatusText = CreateText("ConnectionStatus", connectionBox.transform, string.Empty, 18f, TextAlignmentOptions.Center, new Vector2(480f, 70f), new Vector2(0f, -165f), new Color(0.85f, 0.8f, 0.75f, 1f));
 
-        CreateText("LobbyTitle", lobbyBox.transform, "PHÒNG CHỜ", 36f, TextAlignmentOptions.Center, new Vector2(460f, 58f), new Vector2(0f, 190f), Color.white);
-        inviteCodeText = CreateText("InviteCode", lobbyBox.transform, string.Empty, 22f, TextAlignmentOptions.Center, new Vector2(500f, 42f), new Vector2(0f, 132f), new Color(0.9f, 0.94f, 1f, 1f));
-        copyInviteButton = CreateButton(lobbyBox.transform, "CopyInviteButton", "Sao chép", new Vector2(180f, 44f), new Vector2(0f, 82f), new Color(0.1f, 0.55f, 0.95f, 1f));
-        playerStatusText = CreateText("PlayerStatus", lobbyBox.transform, string.Empty, 22f, TextAlignmentOptions.Left, new Vector2(480f, 165f), new Vector2(0f, -25f), new Color(0.92f, 0.96f, 1f, 1f));
-        lobbyStatusText = CreateText("LobbyStatus", lobbyBox.transform, string.Empty, 20f, TextAlignmentOptions.Center, new Vector2(480f, 54f), new Vector2(0f, -145f), new Color(0.86f, 0.9f, 0.95f, 1f));
-        startGameButton = CreateButton(lobbyBox.transform, "StartGameButton", "Bắt đầu", new Vector2(180f, 50f), new Vector2(-105f, -205f), new Color(0.15f, 0.7f, 0.45f, 1f));
-        leaveLobbyButton = CreateButton(lobbyBox.transform, "LeaveLobbyButton", "Rời phòng", new Vector2(180f, 50f), new Vector2(105f, -205f), new Color(0.55f, 0.22f, 0.22f, 1f));
+        // 2. Lobby Panel (Waiting Room)
+        lobbyPanel = CreateFullscreenPanel("LobbyPanel", panelTint);
+        
+        GameObject lobbyBox = CreateBox(
+            "LobbyBox", 
+            lobbyPanel.transform, 
+            new Vector2(820f, 520f), 
+            Vector2.zero, 
+            boxBg, 
+            boxBorder
+        );
+        var animLobbyBox = lobbyBox.AddComponent<UIAnimate>();
+        animLobbyBox.animType = UIAnimate.AnimationType.CardPopIn;
+
+        var lobbyTitleText = CreateText("LobbyTitle", lobbyBox.transform, "PHÒNG CHỜ CARO", 36f, TextAlignmentOptions.Center, new Vector2(460f, 58f), new Vector2(0f, 215f), new Color(0.95f, 0.92f, 0.88f, 1f));
+        lobbyTitleText.fontStyle = FontStyles.Bold;
+
+        inviteCodeText = CreateText("InviteCode", lobbyBox.transform, string.Empty, 20f, TextAlignmentOptions.MidlineLeft, new Vector2(360f, 42f), new Vector2(-110f, 165f), new Color(0.9f, 0.85f, 0.8f, 1f));
+        
+        copyInviteButton = CreateButton(lobbyBox.transform, "CopyInviteButton", "Sao chép mã", new Vector2(140f, 38f), new Vector2(230f, 165f), new Color(0.45f, 0.36f, 0.28f, 1f));
+        var animCopy = copyInviteButton.gameObject.AddComponent<UIAnimate>();
+        animCopy.animType = UIAnimate.AnimationType.ButtonInteractive;
+        
+        // Inner dashboard panels
+        GameObject playerListCard = CreateBox(
+            "PlayerListCard", 
+            lobbyBox.transform, 
+            new Vector2(370f, 230f), 
+            new Vector2(-190f, -20f), 
+            innerCardBg, 
+            innerCardBorder
+        );
+        playerStatusText = CreateText("PlayerStatus", playerListCard.transform, string.Empty, 16f, TextAlignmentOptions.TopLeft, new Vector2(340f, 200f), Vector2.zero, Color.white);
+        
+        GameObject matchStatusCard = CreateBox(
+            "MatchStatusCard", 
+            lobbyBox.transform, 
+            new Vector2(370f, 230f), 
+            new Vector2(190f, -20f), 
+            innerCardBg, 
+            innerCardBorder
+        );
+        lobbyStatusText = CreateText("LobbyStatus", matchStatusCard.transform, string.Empty, 18f, TextAlignmentOptions.Center, new Vector2(340f, 200f), Vector2.zero, Color.white);
+
+        startGameButton = CreateButton(lobbyBox.transform, "StartGameButton", "Bắt đầu đấu", new Vector2(200f, 48f), new Vector2(-110f, -210f), new Color(0.1f, 0.55f, 0.35f, 1f));
+        var animStart = startGameButton.gameObject.AddComponent<UIAnimate>();
+        animStart.animType = UIAnimate.AnimationType.ButtonInteractive;
+
+        leaveLobbyButton = CreateButton(lobbyBox.transform, "LeaveLobbyButton", "Thoát phòng", new Vector2(200f, 48f), new Vector2(110f, -210f), new Color(0.65f, 0.18f, 0.18f, 1f));
+        var animLeave = leaveLobbyButton.gameObject.AddComponent<UIAnimate>();
+        animLeave.animType = UIAnimate.AnimationType.ButtonInteractive;
+        
         lobbyPanel.SetActive(false);
 
+        // 3. Gameplay UI Overlay
         gameplayPanel = CreateUIObject("GameplayPanel", transform);
         Stretch(gameplayPanel.GetComponent<RectTransform>());
-        gameplayExitButton = CreateButton(gameplayPanel.transform, "GameplayExitButton", "Thoát", new Vector2(120f, 42f), new Vector2(-80f, -34f), new Color(0.55f, 0.22f, 0.22f, 1f));
+        gameplayExitButton = CreateButton(gameplayPanel.transform, "GameplayExitButton", "Thoát Game", new Vector2(140f, 42f), new Vector2(-80f, -34f), new Color(0.65f, 0.18f, 0.18f, 1f));
+        var animExit = gameplayExitButton.gameObject.AddComponent<UIAnimate>();
+        animExit.animType = UIAnimate.AnimationType.ButtonInteractive;
+
         RectTransform exitRect = gameplayExitButton.GetComponent<RectTransform>();
         exitRect.anchorMin = new Vector2(1f, 1f);
         exitRect.anchorMax = new Vector2(1f, 1f);
@@ -670,6 +829,12 @@ public class NetworkManagerUI : MonoBehaviour
         Stretch(panel.GetComponent<RectTransform>());
 
         Image image = panel.AddComponent<Image>();
+        Sprite bgSprite = GetGameBackgroundSprite();
+        if (bgSprite != null)
+        {
+            image.sprite = bgSprite;
+            image.type = Image.Type.Simple;
+        }
         image.color = color;
 
         return panel;
@@ -677,32 +842,63 @@ public class NetworkManagerUI : MonoBehaviour
 
     private GameObject CreateBox(string objectName, Transform parent, Vector2 size, Vector2 anchoredPosition, Color color)
     {
-        GameObject box = CreateUIObject(objectName, parent);
-        RectTransform rectTransform = box.GetComponent<RectTransform>();
-        rectTransform.anchorMin = new Vector2(0.5f, 0.5f);
-        rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
-        rectTransform.pivot = new Vector2(0.5f, 0.5f);
-        rectTransform.anchoredPosition = anchoredPosition;
-        rectTransform.sizeDelta = size;
+        return CreateBox(objectName, parent, size, anchoredPosition, color, new Color(1f, 1f, 1f, 0.15f));
+    }
 
-        Image image = box.AddComponent<Image>();
-        image.color = color;
+    private GameObject CreateBox(string objectName, Transform parent, Vector2 size, Vector2 anchoredPosition, Color bgColor, Color borderColor)
+    {
+        // 1. Create outer border card
+        GameObject borderBox = CreateUIObject(objectName + "_Border", parent);
+        RectTransform borderRect = borderBox.GetComponent<RectTransform>();
+        borderRect.anchorMin = new Vector2(0.5f, 0.5f);
+        borderRect.anchorMax = new Vector2(0.5f, 0.5f);
+        borderRect.pivot = new Vector2(0.5f, 0.5f);
+        borderRect.anchoredPosition = anchoredPosition;
+        borderRect.sizeDelta = size;
 
-        return box;
+        Image borderImage = borderBox.AddComponent<Image>();
+        borderImage.sprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/Background.psd");
+        borderImage.type = Image.Type.Sliced;
+        borderImage.color = borderColor;
+
+        // 2. Create inner background card
+        GameObject bgBox = CreateUIObject(objectName, borderBox.transform);
+        RectTransform bgRect = bgBox.GetComponent<RectTransform>();
+        Stretch(bgRect, 2f, 2f, 2f, 2f); // 2px border width
+
+        Image bgImage = bgBox.AddComponent<Image>();
+        bgImage.sprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/Background.psd");
+        bgImage.type = Image.Type.Sliced;
+        bgImage.color = bgColor;
+
+        return bgBox;
     }
 
     private TMP_InputField CreateInput(Transform parent, string objectName, string placeholder, Vector2 size, Vector2 anchoredPosition)
     {
-        GameObject inputObject = CreateUIObject(objectName, parent);
+        // Outer input border
+        GameObject inputBorder = CreateUIObject(objectName + "_Border", parent);
+        RectTransform borderRect = inputBorder.GetComponent<RectTransform>();
+        borderRect.anchorMin = new Vector2(0.5f, 0.5f);
+        borderRect.anchorMax = new Vector2(0.5f, 0.5f);
+        borderRect.pivot = new Vector2(0.5f, 0.5f);
+        borderRect.anchoredPosition = anchoredPosition;
+        borderRect.sizeDelta = size;
+
+        Image borderImage = inputBorder.AddComponent<Image>();
+        borderImage.sprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/Background.psd");
+        borderImage.type = Image.Type.Sliced;
+        borderImage.color = new Color(0.4f, 0.33f, 0.25f, 0.8f); // Bronze outline
+
+        // Inner input background
+        GameObject inputObject = CreateUIObject(objectName, inputBorder.transform);
         RectTransform rectTransform = inputObject.GetComponent<RectTransform>();
-        rectTransform.anchorMin = new Vector2(0.5f, 0.5f);
-        rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
-        rectTransform.pivot = new Vector2(0.5f, 0.5f);
-        rectTransform.anchoredPosition = anchoredPosition;
-        rectTransform.sizeDelta = size;
+        Stretch(rectTransform, 1.5f, 1.5f, 1.5f, 1.5f);
 
         Image image = inputObject.AddComponent<Image>();
-        image.color = new Color(0.96f, 0.98f, 1f, 1f);
+        image.sprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/Background.psd");
+        image.type = Image.Type.Sliced;
+        image.color = new Color(0.09f, 0.08f, 0.07f, 0.95f); // Very dark brown background
 
         TMP_InputField inputField = inputObject.AddComponent<TMP_InputField>();
         inputField.targetGraphic = image;
@@ -710,13 +906,13 @@ public class NetworkManagerUI : MonoBehaviour
         inputField.characterLimit = 64;
         inputField.textViewport = rectTransform;
 
-        TextMeshProUGUI text = CreateText("Text", inputObject.transform, string.Empty, 20f, TextAlignmentOptions.MidlineLeft, Vector2.zero, Vector2.zero, new Color(0.07f, 0.09f, 0.12f, 1f));
-        Stretch(text.rectTransform, 14f, 8f, 14f, 8f);
+        TextMeshProUGUI text = CreateText("Text", inputObject.transform, string.Empty, 18f, TextAlignmentOptions.MidlineLeft, Vector2.zero, Vector2.zero, Color.white);
+        Stretch(text.rectTransform, 14f, 4f, 14f, 4f);
         text.raycastTarget = false;
         text.textWrappingMode = TextWrappingModes.NoWrap;
 
-        TextMeshProUGUI placeholderText = CreateText("Placeholder", inputObject.transform, placeholder, 18f, TextAlignmentOptions.MidlineLeft, Vector2.zero, Vector2.zero, new Color(0.42f, 0.47f, 0.52f, 1f));
-        Stretch(placeholderText.rectTransform, 14f, 8f, 14f, 8f);
+        TextMeshProUGUI placeholderText = CreateText("Placeholder", inputObject.transform, placeholder, 16f, TextAlignmentOptions.MidlineLeft, Vector2.zero, Vector2.zero, new Color(0.5f, 0.46f, 0.4f, 0.8f));
+        Stretch(placeholderText.rectTransform, 14f, 4f, 14f, 4f);
         placeholderText.raycastTarget = false;
         placeholderText.textWrappingMode = TextWrappingModes.NoWrap;
 
@@ -737,6 +933,8 @@ public class NetworkManagerUI : MonoBehaviour
         rectTransform.sizeDelta = size;
 
         Image image = buttonObject.AddComponent<Image>();
+        image.sprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/UISprite.psd");
+        image.type = Image.Type.Sliced;
         image.color = color;
 
         Button button = buttonObject.AddComponent<Button>();
@@ -744,15 +942,16 @@ public class NetworkManagerUI : MonoBehaviour
 
         ColorBlock colors = button.colors;
         colors.normalColor = color;
-        colors.highlightedColor = Color.Lerp(color, Color.white, 0.18f);
-        colors.pressedColor = Color.Lerp(color, Color.black, 0.18f);
+        colors.highlightedColor = Color.Lerp(color, Color.white, 0.25f);
+        colors.pressedColor = Color.Lerp(color, Color.black, 0.2f);
         colors.disabledColor = new Color(0.25f, 0.28f, 0.32f, 0.75f);
         colors.colorMultiplier = 1f;
         button.colors = colors;
 
-        TextMeshProUGUI buttonText = CreateText("Label", buttonObject.transform, label, 20f, TextAlignmentOptions.Center, Vector2.zero, Vector2.zero, Color.white);
+        TextMeshProUGUI buttonText = CreateText("Label", buttonObject.transform, label, 18f, TextAlignmentOptions.Center, Vector2.zero, Vector2.zero, Color.white);
         Stretch(buttonText.rectTransform);
         buttonText.raycastTarget = false;
+        buttonText.fontStyle = FontStyles.Bold;
 
         return button;
     }
@@ -811,5 +1010,40 @@ public class NetworkManagerUI : MonoBehaviour
         rectTransform.sizeDelta = Vector2.zero;
         rectTransform.offsetMin = new Vector2(left, bottom);
         rectTransform.offsetMax = new Vector2(-right, -top);
+    }
+
+    private System.Collections.IEnumerator StartAIGameWhenReady()
+    {
+        yield return new WaitUntil(() => GameManager.Instance != null && GameManager.Instance.IsSpawned);
+
+        if (aiModel == null)
+        {
+            Debug.LogError("AI model is not assigned in NetworkManagerUI.");
+            NetworkManager.Singleton.Shutdown();
+            yield break;
+        }
+
+        GameManager.Instance.StartAIGame();
+        CreateGameplayAgent();
+    }
+
+    private void CreateGameplayAgent()
+    {
+        GameObject agentObject = new GameObject("CaroGameplayAgent");
+        agentObject.SetActive(false);
+
+        CaroGameplayAgent agent = agentObject.AddComponent<CaroGameplayAgent>();
+        BehaviorParameters behavior = agentObject.GetComponent<BehaviorParameters>();
+        behavior.BehaviorName = "CaroAgent";
+        behavior.BrainParameters.VectorObservationSize = GameManager.BoardPointsX * GameManager.BoardPointsY;
+        behavior.BrainParameters.NumStackedVectorObservations = 1;
+        behavior.BrainParameters.ActionSpec = ActionSpec.MakeDiscrete(GameManager.BoardPointsX * GameManager.BoardPointsY);
+        behavior.BehaviorType = BehaviorType.InferenceOnly;
+        behavior.Model = aiModel;
+        behavior.DeterministicInference = true;
+
+        agent.Configure(GameManager.Instance);
+        agentObject.SetActive(true);
+        Debug.Log("StartGameManager: Đã khởi tạo AI CaroGameplayAgent thành công với mô hình ONNX.");
     }
 }

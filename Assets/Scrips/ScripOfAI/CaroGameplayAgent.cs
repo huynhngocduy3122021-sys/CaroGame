@@ -41,6 +41,13 @@ public class CaroGameplayAgent : Agent
             return;
         }
 
+        if (!gameManager.IsAIGame())
+        {
+            Debug.Log("CaroGameplayAgent: Chế độ AI không kích hoạt, tắt script AI.");
+            enabled = false;
+            return;
+        }
+
         gameManager.OnGripPositionClicked += OnMovePlaced;
         gameManager.OnRematch += OnRematch;
         initialized = true;
