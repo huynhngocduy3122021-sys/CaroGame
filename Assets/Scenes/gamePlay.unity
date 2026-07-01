@@ -1734,7 +1734,7 @@ MonoBehaviour:
   width: 30
   height: 18
   cellSize: 0.45
-  lineWidth: 0.015
+  lineWidth: 0.035
   lineColor: {r: 1, g: 1, b: 1, a: 1}
   cameraSize: 7.5
   topUiRatio: 0.1
@@ -3085,8 +3085,21 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::NetworkManagerUI
   startHostButton: {fileID: 697208149}
   startClientButton: {fileID: 1164214757}
-  aiButton: {fileID: 306577373}
+  inviteInputField: {fileID: 0}
+  portInputField: {fileID: 0}
+  connectionStatusText: {fileID: 0}
   aiModel: {fileID: 5022602860645237092, guid: 621506e275a94b94191c359b1af6a23f, type: 3}
+  connectionPanel: {fileID: 0}
+  lobbyPanel: {fileID: 0}
+  inviteCodeText: {fileID: 0}
+  playerStatusText: {fileID: 0}
+  lobbyStatusText: {fileID: 0}
+  copyInviteButton: {fileID: 0}
+  startGameButton: {fileID: 0}
+  leaveLobbyButton: {fileID: 0}
+  gameplayPanel: {fileID: 0}
+  gameplayExitButton: {fileID: 0}
+  defaultPort: 7777
 --- !u!1 &2102153194
 GameObject:
   m_ObjectHideFlags: 0

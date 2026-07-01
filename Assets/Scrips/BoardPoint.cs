@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 
 public class BoardPoint : MonoBehaviour
 {
@@ -7,13 +7,20 @@ public class BoardPoint : MonoBehaviour
 
     void OnMouseDown()
     {
-        // Kiểm tra điều kiện: Nếu game chưa chính thức bắt đầu HOẶC mình là Khán giả (None) thì không làm gì cả
-        if (!GameManager.Instance.IsGameActive() || GameManager.Instance.GetLocalPlayerType() == GameManager.PlayerType.None)
+        if (GameManager.Instance == null)
         {
+            Debug.LogError("BoardPoint: GameManager.Instance is null!");
             return;
         }
 
-        Debug.Log("clicked on point (" + x + ", " + y + ")");
-        GameManager.Instance.clickedOnGripPositionRpc(x, y, GameManager.Instance.GetLocalPlayerType());
+        Debug.Log($"BoardPoint Clicked: ({x}, {y}) | IsGameActive: {GameManager.Instance.IsGameActive()} | LocalPlayerType: {GameManager.Instance.GetLocalPlayerType()} | CurrentTurn: {GameManager.Instance.GetCurrentPlayerType()}");
+
+        if (!GameManager.Instance.IsGameActive() || GameManager.Instance.GetLocalPlayerType() == GameManager.PlayerType.None)
+        {
+            Debug.Log("BoardPoint Clicked: Ignored due to game inactive or player is None.");
+            return;
+        }
+
+        GameManager.Instance.clickedOnGripPositionRpc(x, y);
     }
 }

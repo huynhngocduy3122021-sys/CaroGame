@@ -9,9 +9,9 @@ public class GameManager : NetworkBehaviour
 
     public static GameManager Instance { get; private set; }
 
-    // Tạo 1 cái event để phát tham số x và y khi có 1 điểm bị click
+    // Sự kiện phát tọa độ (x, y) khi có ô bị click
     public event EventHandler<OnGripPositionClickedEventArgs> OnGripPositionClicked;
-    public class OnGripPositionClickedEventArgs : EventArgs // EventArgs là class chứa dữ liệu của event, ở đây mình tạo 1 class con để chứa x và y
+    public class OnGripPositionClickedEventArgs : EventArgs
     {
         public int x;
         public int y;
@@ -29,15 +29,13 @@ public class GameManager : NetworkBehaviour
     public event EventHandler OnRematch;
     public event EventHandler OnScoreChanged;
     public event EventHandler OnGameReturnedToLobby;
-
-    // Event thông báo khi danh sách người chơi trong Lobby thay đổi (dùng cho UI Lobby)
     public event EventHandler OnLobbyPlayersChanged;
 
     public enum PlayerType
     {
-        None,        // Được dùng làm Khán giả (Spectator / View)
-        Cross,       // Người chơi 1
-        Circle,      // Người chơi 2
+        None,        // Khán giả (Spectator)
+        Cross,       // Người chơi 1 (X)
+        Circle,      // Người chơi 2 (O)
     }
     public enum Orientation
     {
@@ -47,28 +45,27 @@ public class GameManager : NetworkBehaviour
         DiagonalB,
     }
 
-    private PlayerType localPlayerType = PlayerType.None; // Xác định loại người chơi hiện tại của Client này
-    private NetworkVariable<PlayerType> currentPlayerType = new NetworkVariable<PlayerType>(PlayerType.None, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server); // Đồng bộ hóa trạng thái lượt chơi hiện tại
-    private PlayerType[,] playerTypeArrray; // Mảng 2 chiều lưu trữ trạng thái bàn cờ
+    private PlayerType localPlayerType = PlayerType.None;
+    private NetworkVariable<PlayerType> currentPlayerType = new NetworkVariable<PlayerType>(PlayerType.None, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+    private PlayerType[,] playerTypeArrray;
     private int moveCount = 0;
-    private ulong circleClientId = ulong.MaxValue;
+    private NetworkVariable<ulong> circleClientId = new NetworkVariable<ulong>(ulong.MaxValue, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
     private bool isAIGame;
 
     private NetworkVariable<int> playerCrossScore = new NetworkVariable<int>();
     private NetworkVariable<int> playerCircleScore = new NetworkVariable<int>();
 
-    // Biến mạng kiểm tra xem Game đã bắt đầu từ Lobby hay chưa
     private NetworkVariable<bool> isGameStarted = new NetworkVariable<bool>(false);
+    public NetworkVariable<Vector2Int> lastMovePosition = new NetworkVariable<Vector2Int>(new Vector2Int(-1, -1), NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
     private NetworkVariable<int> lobbyPlayerCount = new NetworkVariable<int>(0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
     private void Awake()
     {
         Instance = this;
-
         playerTypeArrray = new PlayerType[BoardPointsX, BoardPointsY];
     }
 
-    public override void OnNetworkSpawn() // Hàm này sẽ được gọi khi GameManager được spawn trên mạng
+    public override void OnNetworkSpawn()
     {
         Debug.Log("GameManager spawned for client: " + NetworkManager.Singleton.LocalClientId);
 
@@ -83,15 +80,13 @@ public class GameManager : NetworkBehaviour
         }
 
         lobbyPlayerCount.OnValueChanged += LobbyPlayerCount_OnValueChanged;
-
         currentPlayerType.OnValueChanged += CurrentPlayerType_OnValueChanged;
-
         playerCrossScore.OnValueChanged += Score_OnValueChanged;
         playerCircleScore.OnValueChanged += Score_OnValueChanged;
-
-        // Lắng nghe biến isGameStarted đổi màu/trạng thái để kích hoạt hiển thị bàn cờ trên tất cả các máy
         isGameStarted.OnValueChanged += IsGameStarted_OnValueChanged;
+        circleClientId.OnValueChanged += CircleClientId_OnValueChanged;
 
+        localPlayerType = GetLocalPlayerType();
         OnScoreChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -108,10 +103,17 @@ public class GameManager : NetworkBehaviour
         playerCrossScore.OnValueChanged -= Score_OnValueChanged;
         playerCircleScore.OnValueChanged -= Score_OnValueChanged;
         isGameStarted.OnValueChanged -= IsGameStarted_OnValueChanged;
+        circleClientId.OnValueChanged -= CircleClientId_OnValueChanged;
     }
 
     private void LobbyPlayerCount_OnValueChanged(int oldCount, int newCount)
     {
+        OnLobbyPlayersChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void CircleClientId_OnValueChanged(ulong oldVal, ulong newVal)
+    {
+        localPlayerType = GetLocalPlayerType();
         OnLobbyPlayersChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -139,23 +141,35 @@ public class GameManager : NetworkBehaviour
 
     private void Server_OnClientConnectedCallback(ulong clientId)
     {
-        // Khi có client mới kết nối, tính toán số lượng người trong phòng để phân vai trò
-        int playerIndex = NetworkManager.Singleton.ConnectedClientsList.Count - 1;
-
-        PlayerType assignedType = PlayerType.None; // Mặc định từ người thứ 3 trở đi là Khán Giả (None)
-
-        if (playerIndex == 0) assignedType = PlayerType.Cross;
-        else if (playerIndex == 1) assignedType = PlayerType.Circle;
-
-        // Chỉ định vai trò cụ thể cho Client vừa kết nối vào
-        AssignPlayerTypeRpc(clientId, assignedType);
-
-        // Cập nhật giao diện Lobby cho toàn bộ phòng
+        if (clientId != NetworkManager.ServerClientId)
+        {
+            if (circleClientId.Value == ulong.MaxValue)
+            {
+                circleClientId.Value = clientId;
+                Debug.Log($"Server: Assigned circleClientId = {clientId} (Circle)");
+                AssignPlayerTypeRpc(clientId, PlayerType.Circle);
+            }
+            else
+            {
+                Debug.Log($"Server: Client {clientId} joined as spectator (Circle is already {circleClientId.Value})");
+                AssignPlayerTypeRpc(clientId, PlayerType.None);
+            }
+        }
+        else
+        {
+            AssignPlayerTypeRpc(clientId, PlayerType.Cross);
+        }
         RefreshLobbyPlayerCount();
     }
 
     private void Server_OnClientDisconnectedCallback(ulong clientId)
     {
+        if (clientId == circleClientId.Value)
+        {
+            circleClientId.Value = ulong.MaxValue;
+            Debug.Log("Server: Circle player disconnected, resetting circleClientId.");
+        }
+
         if (isGameStarted.Value && NetworkManager.Singleton.ConnectedClientsList.Count < 2)
         {
             ReturnToLobbyAfterPlayerExit();
@@ -172,23 +186,12 @@ public class GameManager : NetworkBehaviour
             localPlayerType = type;
             Debug.Log("Vai trò của bạn trong phòng này là: " + localPlayerType);
         }
+    }
 
-        if (NetworkManager.Singleton.ConnectedClientsList.Count != 2)
-        {
-            return;
-        }
-
-        foreach (var client in NetworkManager.Singleton.ConnectedClientsList)
-        {
-            if (client.ClientId != NetworkManager.ServerClientId)
-            {
-                circleClientId = client.ClientId;
-                break;
-            }
-        }
-
-        currentPlayerType.Value = PlayerType.Cross;
-        TriggerOnGameStartedRpc();
+    [Rpc(SendTo.ClientsAndHost)]
+    private void TriggerOnGameStartedRpc()
+    {
+        OnGameStarted?.Invoke(this, EventArgs.Empty);
     }
 
     [Rpc(SendTo.ClientsAndHost)]
@@ -199,8 +202,7 @@ public class GameManager : NetworkBehaviour
 
     private void RefreshLobbyPlayerCount()
     {
-        Debug.Log("clickedOnGripPosition:" + x + ", " + y);
-        if (x < 0 || x >= BoardPointsX || y < 0 || y >= BoardPointsY)
+        if (!IsServer || NetworkManager.Singleton == null)
         {
             return;
         }
@@ -217,13 +219,14 @@ public class GameManager : NetworkBehaviour
         isGameStarted.Value = false;
     }
 
-    // Hàm này sẽ được gán vào Nút "START GAME" trên UI Lobby (Chỉ Host bấm được)
     public void StartGameFromLobby()
     {
-        if (x < 0 || x >= BoardPointsX || y < 0 || y >= BoardPointsY)
+        if (!IsServer) return;
+
+        if (NetworkManager.Singleton.ConnectedClientsList.Count >= 2)
         {
             isGameStarted.Value = true;
-            currentPlayerType.Value = PlayerType.Cross; // Đặt lượt chơi đầu tiên là Cross
+            currentPlayerType.Value = PlayerType.Cross;
         }
         else
         {
@@ -231,33 +234,56 @@ public class GameManager : NetworkBehaviour
         }
     }
 
-    [Rpc(SendTo.Server)]
-    public void clickedOnGripPositionRpc(int x, int y, PlayerType playerType)
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    public void clickedOnGripPositionRpc(int x, int y, RpcParams rpcParams = default)
     {
-        // Nếu Game chưa bắt đầu hoặc người bấm là Khán giả (None) thì chặn tại Server
-        if (!isGameStarted.Value || playerType == PlayerType.None) return;
+        Debug.Log($"GameManager: clickedOnGripPositionRpc received ({x}, {y}) from client {rpcParams.Receive.SenderClientId} | isGameStarted: {isGameStarted.Value} | CurrentTurn: {currentPlayerType.Value}");
 
-        Debug.Log("clickedOnGripPosition:" + x + ", " + y);
-        if (playerType != currentPlayerType.Value)
+        if (!isGameStarted.Value) return;
+
+        if (x < 0 || x >= BoardPointsX || y < 0 || y >= BoardPointsY)
         {
-            Debug.Log("It's not your turn!");
+            Debug.LogWarning($"Rejected out-of-range move ({x}, {y}).");
+            return;
+        }
+
+        PlayerType playerType = GetPlayerTypeForClient(rpcParams.Receive.SenderClientId);
+        Debug.Log($"GameManager: Sender client {rpcParams.Receive.SenderClientId} resolved to playerType {playerType}");
+
+        if (playerType == PlayerType.None)
+        {
+            Debug.LogWarning($"Rejected move from unassigned client {rpcParams.Receive.SenderClientId}.");
+            return;
+        }
+
+        TryPlaceMove(x, y, playerType);
+    }
+
+    private bool TryPlaceMove(int x, int y, PlayerType playerType)
+    {
+        Debug.Log($"GameManager: TryPlaceMove({x}, {y}, {playerType}) | currentPlayerType: {currentPlayerType.Value}");
+
+        if (x < 0 || x >= BoardPointsX || y < 0 || y >= BoardPointsY)
+        {
+            Debug.LogWarning($"Rejected out-of-range move ({x}, {y}).");
             return false;
         }
 
-        if (!IsInBoard(x, y))
+        if (playerType != currentPlayerType.Value)
         {
-            Debug.Log("This position is outside the board!");
-            return;
+            Debug.Log($"It's not your turn! Player: {playerType} | CurrentTurn: {currentPlayerType.Value}");
+            return false;
         }
 
         if (playerTypeArrray[x, y] != PlayerType.None)
         {
             Debug.Log("This position is already occupied!");
-            return;
+            return false;
         }
 
         playerTypeArrray[x, y] = playerType;
         moveCount++;
+        lastMovePosition.Value = new Vector2Int(x, y);
         OnGripPositionClicked?.Invoke(this, new OnGripPositionClickedEventArgs
         {
             x = x,
@@ -275,6 +301,8 @@ public class GameManager : NetworkBehaviour
                 break;
         }
         testWinner(x, y);
+
+        return true;
     }
 
     private bool checkLine(int x, int y, int dirX, int dirY, PlayerType playerType)
@@ -291,7 +319,7 @@ public class GameManager : NetworkBehaviour
         int checkX = x + dirX;
         int checkY = y + dirY;
 
-        while(
+        while (
             checkX >= 0 &&
             checkX < BoardPointsX &&
             checkY >= 0 &&
@@ -355,10 +383,8 @@ public class GameManager : NetworkBehaviour
     }
 
     private void checkDraw()
-{
-    if (moveCount >= BoardPointsX * BoardPointsY)
     {
-        if (moveCount >= (BOARD_WIDTH + 1) * (BOARD_HEIGHT + 1))
+        if (moveCount >= BoardPointsX * BoardPointsY)
         {
             Debug.Log("Draw!");
             currentPlayerType.Value = PlayerType.None;
@@ -369,49 +395,15 @@ public class GameManager : NetworkBehaviour
     [Rpc(SendTo.ClientsAndHost)]
     private void TriggerOnGameWinRpc(Vector2Int centerPos, Orientation orientation, PlayerType playerWinType)
     {
-         OnGameWin?.Invoke(this, new OnGameWinEventArgs { 
-                centerGridposition = centerPos,
-                orientation = orientation,
-                playerWinType = playerWinType
-                 });
-    }
-   private Vector2Int GetWinCenter(int x, int y, int dirX, int dirY, PlayerType playerType)
-{
-    int minX = x;
-    int minY = y;
-    int maxX = x;
-    int maxY = y;
-
-    // Đi về một phía
-    int checkX = x + dirX;
-    int checkY = y + dirY;
-
-    while (
-        checkX >= 0 &&
-        checkX < BoardPointsX &&
-        checkY >= 0 &&
-        checkY < BoardPointsY &&
-        playerTypeArrray[checkX, checkY] == playerType
-    )
-    {
-        maxX = checkX;
-        maxY = checkY;
-
-        checkX += dirX;
-        checkY += dirY;
+        OnGameWin?.Invoke(this, new OnGameWinEventArgs
+        {
+            centerGridposition = centerPos,
+            orientation = orientation,
+            playerWinType = playerWinType
+        });
     }
 
-    // Đi về phía ngược lại
-    checkX = x - dirX;
-    checkY = y - dirY;
-
-    while (
-        checkX >= 0 &&
-        checkX < BoardPointsX &&
-        checkY >= 0 &&
-        checkY < BoardPointsY &&
-        playerTypeArrray[checkX, checkY] == playerType
-    )
+    private Vector2Int GetWinCenter(int x, int y, int dirX, int dirY, PlayerType playerType)
     {
         int minX = x;
         int minY = y;
@@ -422,7 +414,10 @@ public class GameManager : NetworkBehaviour
         int checkY = y + dirY;
 
         while (
-            IsInBoard(checkX, checkY) &&
+            checkX >= 0 &&
+            checkX < BoardPointsX &&
+            checkY >= 0 &&
+            checkY < BoardPointsY &&
             playerTypeArrray[checkX, checkY] == playerType
         )
         {
@@ -436,7 +431,10 @@ public class GameManager : NetworkBehaviour
         checkY = y - dirY;
 
         while (
-            IsInBoard(checkX, checkY) &&
+            checkX >= 0 &&
+            checkX < BoardPointsX &&
+            checkY >= 0 &&
+            checkY < BoardPointsY &&
             playerTypeArrray[checkX, checkY] == playerType
         )
         {
@@ -449,9 +447,15 @@ public class GameManager : NetworkBehaviour
         return new Vector2Int((minX + maxX) / 2, (minY + maxY) / 2);
     }
 
-    [Rpc(SendTo.Server)]
-    public void RematchRpc()
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    public void RematchRpc(RpcParams rpcParams = default)
     {
+        if (GetPlayerTypeForClient(rpcParams.Receive.SenderClientId) == PlayerType.None)
+        {
+            Debug.LogWarning($"Rejected rematch request from unassigned client {rpcParams.Receive.SenderClientId}.");
+            return;
+        }
+
         ResetBoardState();
         currentPlayerType.Value = PlayerType.Cross;
         TriggerOnRematchRpc();
@@ -467,6 +471,7 @@ public class GameManager : NetworkBehaviour
     {
         return isGameStarted.Value;
     }
+
     public int GetLobbyPlayerCount()
     {
         if (NetworkManager.Singleton != null && IsServer)
@@ -476,30 +481,106 @@ public class GameManager : NetworkBehaviour
 
         return lobbyPlayerCount.Value;
     }
+
     public bool CanStartGameFromLobby()
     {
         return IsServer && GetLobbyPlayerCount() >= 2;
     }
+
     public PlayerType GetLocalPlayerType()
     {
-        return localPlayerType;
+        if (isAIGame)
+        {
+            return PlayerType.Cross;
+        }
+
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsListening)
+        {
+            return PlayerType.None;
+        }
+
+        ulong localId = NetworkManager.Singleton.LocalClientId;
+        if (localId == NetworkManager.ServerClientId)
+        {
+            return PlayerType.Cross;
+        }
+
+        if (circleClientId.Value != ulong.MaxValue && localId == circleClientId.Value)
+        {
+            return PlayerType.Circle;
+        }
+
+        return PlayerType.None;
     }
+
     public PlayerType GetCurrentPlayerType()
     {
         return currentPlayerType.Value;
     }
+
     public int getCrossScore()
     {
         return playerCrossScore.Value;
     }
+
     public int getCircleScore()
     {
         return playerCircleScore.Value;
     }
 
-    private bool IsInBoard(int x, int y)
+    public void StartAIGame()
     {
-        return x >= 0 && x <= BOARD_WIDTH && y >= 0 && y <= BOARD_HEIGHT;
+        if (!IsServer)
+        {
+            Debug.LogError("Only the server can start an AI game.");
+            return;
+        }
+
+        isAIGame = true;
+        circleClientId.Value = ulong.MaxValue;
+        localPlayerType = PlayerType.Cross;
+        currentPlayerType.Value = PlayerType.Cross;
+        isGameStarted.Value = true;
+        TriggerOnGameStartedRpc();
+    }
+
+    public bool TryPlaceAIMove(int x, int y)
+    {
+        if (!IsServer || !isAIGame)
+        {
+            return false;
+        }
+
+        return TryPlaceMove(x, y, PlayerType.Circle);
+    }
+
+    public bool IsAIGame()
+    {
+        return isAIGame;
+    }
+
+    public PlayerType GetPlayerTypeAtPosition(int x, int y)
+    {
+        if (x < 0 || x >= BoardPointsX || y < 0 || y >= BoardPointsY)
+        {
+            return PlayerType.None;
+        }
+        return playerTypeArrray[x, y];
+    }
+
+    private PlayerType GetPlayerTypeForClient(ulong clientId)
+    {
+        if (clientId == NetworkManager.ServerClientId)
+        {
+            return PlayerType.Cross;
+        }
+
+        if (clientId == circleClientId.Value)
+        {
+            return PlayerType.Circle;
+        }
+
+        return PlayerType.None;
     }
 
     private void ResetBoardState()
@@ -513,5 +594,9 @@ public class GameManager : NetworkBehaviour
         }
 
         moveCount = 0;
+        if (IsServer)
+        {
+            lastMovePosition.Value = new Vector2Int(-1, -1);
+        }
     }
 }
