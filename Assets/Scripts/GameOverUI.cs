@@ -10,6 +10,7 @@ public class GameOverUI : MonoBehaviour
     [SerializeField] private Color loseColor;
     [SerializeField] private Color drawsColor;
     [SerializeField] private  Button rematch;
+    [SerializeField] private Button exitGameButton;
 
     [Header("Animation Elements")]
     [SerializeField] private Image background; // Tấm nền đen để làm mờ
@@ -19,6 +20,16 @@ public class GameOverUI : MonoBehaviour
         rematch.onClick.AddListener(() => {
             GameManager.Instance.RematchRpc();
         });
+        // Thêm logic xử lý cho nút thoát game mới ở đây
+        if (exitGameButton != null)
+        {
+            exitGameButton.onClick.AddListener(() => {
+                if (NetworkManagerUI.Instance != null)
+                {
+                    NetworkManagerUI.Instance.LeaveLobby();
+                }
+            });
+        }
     }
 
      
@@ -68,9 +79,6 @@ public class GameOverUI : MonoBehaviour
     // Hiệu ứng mờ nền và nảy UI
     private IEnumerator AnimatePopUp()
     {
-        float duration = 0.5f; // Thời gian hiệu ứng (nửa giây)
-        float elapsed = 0f;
-
         // 1. Đặt thông số ban đầu (Nền trong suốt, UI nhỏ xíu)
         if (background != null)
         {
@@ -84,6 +92,9 @@ public class GameOverUI : MonoBehaviour
             contentPanel.localScale = Vector3.zero;
         }
 
+        yield return new WaitForSeconds(1.5f);
+        float duration = 0.5f; // Thời gian hiệu ứng (nửa giây)
+        float elapsed = 0f;
         // 2. Chạy hiệu ứng theo thời gian
         while (elapsed < duration)
         {
