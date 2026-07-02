@@ -12,6 +12,7 @@ using Unity.MLAgents.Policies;
 
 public class NetworkManagerUI : MonoBehaviour
 {
+    public static NetworkManagerUI Instance { get; private set; }
     [Header("Connection")]
     [SerializeField] private Button startHostButton;
     [SerializeField] private Button startClientButton;
@@ -45,6 +46,7 @@ public class NetworkManagerUI : MonoBehaviour
 
     private void Awake()
     {
+        Instance = this;
         currentPort = NormalizePort(defaultPort);
         unityTransport = FindUnityTransport();
 
@@ -306,7 +308,7 @@ public class NetworkManagerUI : MonoBehaviour
         GameManager.Instance.StartGameFromLobby();
     }
 
-    private void LeaveLobby()
+    public void LeaveLobby()
     {
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
         {
@@ -812,7 +814,12 @@ public class NetworkManagerUI : MonoBehaviour
         // 3. Gameplay UI Overlay
         gameplayPanel = CreateUIObject("GameplayPanel", transform);
         Stretch(gameplayPanel.GetComponent<RectTransform>());
-        gameplayExitButton = CreateButton(gameplayPanel.transform, "GameplayExitButton", "Thoát Game", new Vector2(140f, 42f), new Vector2(-80f, -34f), new Color(0.65f, 0.18f, 0.18f, 1f));
+        gameplayExitButton = CreateButton(gameplayPanel.transform, "GameplayExitButton", "Thoát Game", new Vector2(140f, 42f), new Vector2(-80f, -34f), new Color(0.15f, 0.15f, 0.15f, 1f));
+        var exitText = gameplayExitButton.GetComponentInChildren<TextMeshProUGUI>();
+        if (exitText != null)
+        {
+            exitText.color = new Color(0.96f, 0.72f, 0.2f, 1f); // Màu vàng Amber/Gold giống sảnh chờ của bạn
+        }
         var animExit = gameplayExitButton.gameObject.AddComponent<UIAnimate>();
         animExit.animType = UIAnimate.AnimationType.ButtonInteractive;
 
