@@ -31,26 +31,7 @@ public class BoardGenerator : MonoBehaviour
         }
 
         // Disable the background sprite renderer so the pure white camera background shows through
-        GameObject bg = GameObject.Find("BackGround");
-        if (bg != null)
-        {
-            SpriteRenderer bgSR = bg.GetComponent<SpriteRenderer>();
-            if (bgSR != null)
-            {
-                bgSR.enabled = false;
-            }
-        }
-        else
-        {
-            // Fallback: disable any sprite renderer with "background" in name
-            foreach (SpriteRenderer sr in FindObjectsOfType<SpriteRenderer>())
-            {
-                if (sr.gameObject.name.ToLower().Contains("background"))
-                {
-                    sr.enabled = false;
-                }
-            }
-        }
+       
 
         transform.localScale = Vector3.one;
         GenerateBoard();
