@@ -1,24 +1,83 @@
-﻿using UnityEngine;
+using UnityEngine;
 using TMPro;
 using UnityEngine.UI;
 using Unity.Netcode;
 
 public class LobbyUI : MonoBehaviour
 {
-    [SerializeField] private GameObject lobbyPanel; // Kéo Panel UI phòng chờ vào đây
-    [SerializeField] private TextMeshProUGUI playerStatusText; // Text hiển thị trạng thái danh sách người chơi
-    [SerializeField] private Button startGameButton; // Nút Start Game (Chỉ hiển thị cho Host)
+    [SerializeField] private GameObject lobbyPanel; 
+    [SerializeField] private TextMeshProUGUI playerStatusText; 
+    [SerializeField] private Button startGameButton; 
 
     private void Start()
     {
-        GameManager.Instance.OnLobbyPlayersChanged += GameManager_OnLobbyPlayersChanged;
-        GameManager.Instance.OnGameStarted += GameManager_OnGameStarted;
-        GameManager.Instance.OnGameReturnedToLobby += GameManager_OnGameReturnedToLobby;
+        if (LobbyManager.Instance != null)
+        {
+            LobbyManager.Instance.OnLobbyJoined += OnLobbyJoinedCallback;
+            LobbyManager.Instance.OnLobbyLeft += OnLobbyLeftCallback;
+            LobbyManager.Instance.OnPlayerJoined += OnPlayerJoinedCallback;
+            LobbyManager.Instance.OnPlayerLeft += OnPlayerLeftCallback;
+        }
 
-        startGameButton.onClick.AddListener(() => {
-            GameManager.Instance.StartGameFromLobby();
-        });
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.OnLobbyPlayersChanged += GameManager_OnLobbyPlayersChanged;
+            GameManager.Instance.OnGameStarted += GameManager_OnGameStarted;
+            GameManager.Instance.OnGameReturnedToLobby += GameManager_OnGameReturnedToLobby;
+        }
 
+        if (startGameButton != null)
+        {
+            startGameButton.onClick.RemoveAllListeners();
+            startGameButton.onClick.AddListener(() => {
+                if (GameManager.Instance != null)
+                {
+                    GameManager.Instance.StartGameFromLobby();
+                }
+            });
+        }
+
+        UpdateLobbyUI();
+    }
+
+    private void OnDestroy()
+    {
+        if (LobbyManager.Instance != null)
+        {
+            LobbyManager.Instance.OnLobbyJoined -= OnLobbyJoinedCallback;
+            LobbyManager.Instance.OnLobbyLeft -= OnLobbyLeftCallback;
+            LobbyManager.Instance.OnPlayerJoined -= OnPlayerJoinedCallback;
+            LobbyManager.Instance.OnPlayerLeft -= OnPlayerLeftCallback;
+        }
+
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.OnLobbyPlayersChanged -= GameManager_OnLobbyPlayersChanged;
+            GameManager.Instance.OnGameStarted -= GameManager_OnGameStarted;
+            GameManager.Instance.OnGameReturnedToLobby -= GameManager_OnGameReturnedToLobby;
+        }
+    }
+
+    private void OnLobbyJoinedCallback(LobbyData data)
+    {
+        UpdateLobbyUI();
+    }
+
+    private void OnLobbyLeftCallback()
+    {
+        if (lobbyPanel != null)
+        {
+            lobbyPanel.SetActive(false);
+        }
+    }
+
+    private void OnPlayerJoinedCallback(string playerId)
+    {
+        UpdateLobbyUI();
+    }
+
+    private void OnPlayerLeftCallback(string playerId)
+    {
         UpdateLobbyUI();
     }
 
@@ -29,20 +88,29 @@ public class LobbyUI : MonoBehaviour
 
     private void GameManager_OnGameStarted(object sender, System.EventArgs e)
     {
-        lobbyPanel.SetActive(false); // Ẩn giao diện Lobby đi khi Game bắt đầu công khai
+        if (lobbyPanel != null)
+        {
+            lobbyPanel.SetActive(false); 
+        }
     }
 
     private void GameManager_OnGameReturnedToLobby(object sender, System.EventArgs e)
     {
-        lobbyPanel.SetActive(true);
+        if (lobbyPanel != null)
+        {
+            lobbyPanel.SetActive(true);
+        }
         UpdateLobbyUI();
     }
 
     private void UpdateLobbyUI()
     {
-        if (!NetworkManager.Singleton.IsClient && !NetworkManager.Singleton.IsServer) return;
+        if (NetworkManager.Singleton == null || (!NetworkManager.Singleton.IsClient && !NetworkManager.Singleton.IsServer)) 
+        {
+            return;
+        }
 
-        int connectedCount = GameManager.Instance.GetLobbyPlayerCount();
+        int connectedCount = GameManager.Instance != null ? GameManager.Instance.GetLobbyPlayerCount() : 0;
         string info = "DANH SÁCH PHÒNG CHỜ:\n";
 
         for (int i = 0; i < connectedCount; i++)
@@ -52,16 +120,15 @@ public class LobbyUI : MonoBehaviour
             else info += $"- Khán giả {i - 1} (Đang xem)\n";
         }
 
-        playerStatusText.text = info;
-
-        // Chỉ cho phép Máy chủ (Host) nhìn thấy và bấm được nút Start Game khi có từ 2 người trở lên
-        if (GameManager.Instance.CanStartGameFromLobby())
+        if (playerStatusText != null)
         {
-            startGameButton.gameObject.SetActive(true);
+            playerStatusText.text = info;
         }
-        else
+
+        if (startGameButton != null)
         {
-            startGameButton.gameObject.SetActive(false);
+            bool canStart = GameManager.Instance != null && GameManager.Instance.CanStartGameFromLobby();
+            startGameButton.gameObject.SetActive(canStart);
         }
     }
 }

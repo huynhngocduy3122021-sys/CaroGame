@@ -13,6 +13,7 @@ using Unity.MLAgents.Policies;
 public class NetworkManagerUI : MonoBehaviour
 {
     public static NetworkManagerUI Instance { get; private set; }
+    
     [Header("Connection")]
     [SerializeField] private Button startHostButton;
     [SerializeField] private Button startClientButton;
@@ -44,11 +45,79 @@ public class NetworkManagerUI : MonoBehaviour
     private ushort currentPort = 7777;
     private bool subscribedToGameManager;
 
+    // Dynamic UI controls built at runtime
+    private Button publicTypeBtn;
+    private Button privateTypeBtn;
+    private Button rankingTypeBtn;
+    private TMP_InputField lobbyNameInputField;
+    private TMP_InputField lobbyPasswordInputField;
+    private Button quickJoinButton;
+    private Button refreshLobbiesButton;
+    private GameObject lobbyListContainer;
+    
+    private LobbyType selectedLobbyType = LobbyType.Public;
+    private TMP_FontAsset vietnameseFont;
+
+    private void SetupVietnameseFont()
+    {
+        try
+        {
+            string winFontPath = @"C:\Windows\Fonts\segoeui.ttf";
+            if (!System.IO.File.Exists(winFontPath))
+            {
+                winFontPath = @"C:\Windows\Fonts\arial.ttf";
+            }
+            if (!System.IO.File.Exists(winFontPath))
+            {
+                winFontPath = @"C:\Windows\Fonts\calibri.ttf";
+            }
+
+            if (System.IO.File.Exists(winFontPath))
+            {
+                Font font = new Font(winFontPath);
+                vietnameseFont = TMP_FontAsset.CreateFontAsset(font);
+                vietnameseFont.name = "SegoeUI SDF (Dynamic)";
+                vietnameseFont.atlasPopulationMode = AtlasPopulationMode.Dynamic;
+
+                // Also register as fallback to default font so any existing text in the scene handles Vietnamese
+                TMP_FontAsset defaultFont = TMP_Settings.defaultFontAsset;
+                if (defaultFont != null)
+                {
+                    if (defaultFont.fallbackFontAssetTable == null)
+                    {
+                        defaultFont.fallbackFontAssetTable = new System.Collections.Generic.List<TMP_FontAsset>();
+                    }
+                    if (!defaultFont.fallbackFontAssetTable.Contains(vietnameseFont))
+                    {
+                        defaultFont.fallbackFontAssetTable.Add(vietnameseFont);
+                        Debug.Log("Segoe UI registered as fallback font for " + defaultFont.name);
+                    }
+                }
+                Debug.Log("Successfully created dynamic Vietnamese Font Asset at runtime from " + winFontPath);
+            }
+            else
+            {
+                Debug.LogWarning("No suitable system font found for Vietnamese rendering fallback.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError("Error initializing Vietnamese font at runtime: " + ex.Message);
+        }
+    }
+
     private void Awake()
     {
+        SetupVietnameseFont();
         Instance = this;
         currentPort = NormalizePort(defaultPort);
         unityTransport = FindUnityTransport();
+
+        // Self-healing initialization of LobbyManager singleton if missing from the scene
+        if (LobbyManager.Instance == null)
+        {
+            GameObject lmObj = new GameObject("LobbyManager", typeof(LobbyManager));
+        }
 
         if (NeedsRuntimeUI())
         {
@@ -67,6 +136,17 @@ public class NetworkManagerUI : MonoBehaviour
     private void Start()
     {
         TrySubscribeGameManager();
+
+        // Wire event handlers to LobbyManager events (reactive UI updates)
+        if (LobbyManager.Instance != null)
+        {
+            LobbyManager.Instance.OnLobbyCreated += OnLobbyCreatedCallback;
+            LobbyManager.Instance.OnLobbyJoined += OnLobbyJoinedCallback;
+            LobbyManager.Instance.OnLobbyLeft += OnLobbyLeftCallback;
+            LobbyManager.Instance.OnPlayerJoined += OnPlayerJoinedCallback;
+            LobbyManager.Instance.OnPlayerLeft += OnPlayerLeftCallback;
+            LobbyManager.Instance.OnLobbyDeleted += OnLobbyDeletedCallback;
+        }
 
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
         {
@@ -127,6 +207,16 @@ public class NetworkManagerUI : MonoBehaviour
         if (startGameButton != null) startGameButton.onClick.RemoveListener(StartGameFromLobby);
         if (leaveLobbyButton != null) leaveLobbyButton.onClick.RemoveListener(LeaveLobby);
         if (gameplayExitButton != null) gameplayExitButton.onClick.RemoveListener(LeaveLobby);
+
+        if (LobbyManager.Instance != null)
+        {
+            LobbyManager.Instance.OnLobbyCreated -= OnLobbyCreatedCallback;
+            LobbyManager.Instance.OnLobbyJoined -= OnLobbyJoinedCallback;
+            LobbyManager.Instance.OnLobbyLeft -= OnLobbyLeftCallback;
+            LobbyManager.Instance.OnPlayerJoined -= OnPlayerJoinedCallback;
+            LobbyManager.Instance.OnPlayerLeft -= OnPlayerLeftCallback;
+            LobbyManager.Instance.OnLobbyDeleted -= OnLobbyDeletedCallback;
+        }
 
         if (GameManager.Instance != null && subscribedToGameManager)
         {
@@ -196,6 +286,28 @@ public class NetworkManagerUI : MonoBehaviour
             gameplayExitButton.onClick.AddListener(LeaveLobby);
         }
 
+        // Strategy selection & browser event hooks
+        if (publicTypeBtn != null)
+        {
+            publicTypeBtn.onClick.AddListener(() => SelectLobbyType(LobbyType.Public));
+        }
+        if (privateTypeBtn != null)
+        {
+            privateTypeBtn.onClick.AddListener(() => SelectLobbyType(LobbyType.Private));
+        }
+        if (rankingTypeBtn != null)
+        {
+            rankingTypeBtn.onClick.AddListener(() => SelectLobbyType(LobbyType.Ranking));
+        }
+        if (quickJoinButton != null)
+        {
+            quickJoinButton.onClick.AddListener(QuickJoin);
+        }
+        if (refreshLobbiesButton != null)
+        {
+            refreshLobbiesButton.onClick.AddListener(RefreshLobbyListUI);
+        }
+
         if (portInputField != null)
         {
             portInputField.onValueChanged.RemoveAllListeners();
@@ -209,6 +321,8 @@ public class NetworkManagerUI : MonoBehaviour
         }
 
         UpdateInvitePreview();
+        SelectLobbyType(LobbyType.Public);
+        RefreshLobbyListUI();
     }
 
     private void SubscribeNetworkCallbacks()
@@ -238,6 +352,42 @@ public class NetworkManagerUI : MonoBehaviour
         UpdateLobbyUI();
     }
 
+    // Reactive callback registrations
+    private void OnLobbyCreatedCallback(LobbyData lobbyData)
+    {
+        Debug.Log($"[DIAGNOSTIC] Lobby Created | Id: '{lobbyData.LobbyId}', Name: '{lobbyData.LobbyName}', IsPrivate: {lobbyData.IsPrivate}");
+        currentInviteAddress = GetLocalIPv4Address();
+        ShowLobbyPanel("Phòng đã tạo. Gửi mã mời cho người chơi khác.");
+    }
+
+    private void OnLobbyJoinedCallback(LobbyData lobbyData)
+    {
+        ParseConnectionCode(lobbyData.ConnectionCode, out string address, out ushort port);
+        currentInviteAddress = address;
+        currentPort = port;
+        ShowLobbyPanel("Đã kết nối!");
+    }
+
+    private void OnLobbyLeftCallback()
+    {
+        ShowConnectionPanel("Đã rời sảnh.");
+    }
+
+    private void OnLobbyDeletedCallback()
+    {
+        ShowConnectionPanel("Sảnh đã bị xóa.");
+    }
+
+    private void OnPlayerJoinedCallback(string playerId)
+    {
+        UpdateLobbyUI();
+    }
+
+    private void OnPlayerLeftCallback(string playerId)
+    {
+        UpdateLobbyUI();
+    }
+
     private void StartHost()
     {
         if (!CanStartNetwork())
@@ -250,18 +400,27 @@ public class NetworkManagerUI : MonoBehaviour
             return;
         }
 
-        unityTransport.SetConnectionData(DefaultClientAddress, currentPort, HostListenAddress);
-        currentInviteAddress = GetLocalIPv4Address();
+        string lobbyName = lobbyNameInputField != null ? lobbyNameInputField.text : "Phòng Caro";
+        string password = lobbyPasswordInputField != null ? lobbyPasswordInputField.text : string.Empty;
 
-        bool started = NetworkManager.Singleton.StartHost();
-        if (!started)
+        LobbyData data = new LobbyData
         {
-            ShowConnectionPanel("Không thể tạo phòng. Kiểm tra NetworkManager/Transport.");
-            return;
-        }
+            LobbyName = string.IsNullOrWhiteSpace(lobbyName) ? "Phòng Caro" : lobbyName,
+            Type = selectedLobbyType,
+            Password = password,
+            MaxPlayers = 2,
+            ConnectionCode = "127.0.0.1:" + currentPort
+        };
 
-        Debug.Log("Started Host on " + GetInviteCode());
-        ShowLobbyPanel("Phòng đã tạo. Gửi mã mời cho người chơi khác.");
+        SetConnectionStatus("Đang tạo phòng...");
+
+        LobbyManager.Instance.CreateLobby(data, (success, message) =>
+        {
+            if (!success)
+            {
+                SetConnectionStatus("Lỗi tạo phòng: " + message);
+            }
+        });
     }
 
     private void StartClient()
@@ -276,19 +435,126 @@ public class NetworkManagerUI : MonoBehaviour
             return;
         }
 
-        currentInviteAddress = address;
-        currentPort = port;
-        unityTransport.SetConnectionData(address, port);
+        string password = lobbyPasswordInputField != null ? lobbyPasswordInputField.text : string.Empty;
 
-        bool started = NetworkManager.Singleton.StartClient();
-        if (!started)
+        LobbyData data = new LobbyData
         {
-            ShowConnectionPanel("Không thể tham gia lobby. Kiểm tra mã mời/IP.");
+            ConnectionCode = address + ":" + port,
+            Password = password,
+            Type = LobbyType.Private
+        };
+
+        SetConnectionStatus("Đang kết nối đến phòng...");
+
+        LobbyManager.Instance.JoinLobby(data, (success, message) =>
+        {
+            if (!success)
+            {
+                SetConnectionStatus("Không thể tham gia: " + message);
+            }
+        });
+    }
+
+    private void QuickJoin()
+    {
+        if (!CanStartNetwork())
+        {
             return;
         }
 
-        Debug.Log("Started Client to " + address + ":" + port);
-        ShowLobbyPanel("Đang kết nối đến lobby...");
+        SetConnectionStatus("Đang tìm phòng vào nhanh...");
+
+        LobbyManager.Instance.QuickJoin(LobbyType.Public, (success, message) =>
+        {
+            if (!success)
+            {
+                SetConnectionStatus("Vào nhanh thất bại: " + message);
+            }
+        });
+    }
+
+    private void ShowPasswordDialog(LobbyData lobby)
+    {
+        GameObject dialogOverlay = CreateFullscreenPanel("PasswordDialogOverlay", new Color(0, 0, 0, 0.75f));
+        dialogOverlay.transform.SetParent(transform, false);
+
+        GameObject box = CreateUIObject("DialogBox", dialogOverlay.transform);
+        RectTransform boxRect = box.GetComponent<RectTransform>();
+        boxRect.anchorMin = new Vector2(0.5f, 0.5f);
+        boxRect.anchorMax = new Vector2(0.5f, 0.5f);
+        boxRect.pivot = new Vector2(0.5f, 0.5f);
+        boxRect.anchoredPosition = Vector2.zero;
+        boxRect.sizeDelta = new Vector2(360f, 220f);
+
+        Image boxBg = box.AddComponent<Image>();
+        boxBg.sprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/Background.psd");
+        boxBg.type = Image.Type.Sliced;
+        boxBg.color = new Color(0.15f, 0.13f, 0.11f, 1f);
+
+        Color goldColor = new Color(0.9f, 0.75f, 0.15f, 1f);
+
+        var title = CreateText("DialogTitle", box.transform, "NHẬP MẬT KHẨU PHÒNG", 16f, TextAlignmentOptions.Center, new Vector2(320f, 30f), new Vector2(0f, 70f), goldColor);
+        title.fontStyle = FontStyles.Bold;
+
+        CreateText("LobbyInfo", box.transform, $"Phòng: {lobby.LobbyName}", 13f, TextAlignmentOptions.Center, new Vector2(320f, 25f), new Vector2(0f, 40f), Color.white);
+
+        TMP_InputField pwdInput = CreateInput(box.transform, "DialogPasswordInput", "Mật khẩu", new Vector2(280f, 40f), new Vector2(0f, -10f));
+        pwdInput.contentType = TMP_InputField.ContentType.Password;
+
+        var statusText = CreateText("DialogStatusText", box.transform, string.Empty, 12f, TextAlignmentOptions.Center, new Vector2(320f, 25f), new Vector2(0f, -50f), new Color(0.9f, 0.3f, 0.3f, 1f));
+
+        var confirmBtn = CreateButton(box.transform, "ConfirmBtn", "Vào", new Vector2(100f, 35f), new Vector2(-60f, -90f), new Color(0.1f, 0.55f, 0.35f, 1f));
+        var cancelBtn = CreateButton(box.transform, "CancelBtn", "Hủy", new Vector2(100f, 35f), new Vector2(60f, -90f), new Color(0.55f, 0.2f, 0.2f, 1f));
+
+        cancelBtn.onClick.AddListener(() => {
+            Destroy(dialogOverlay);
+        });
+
+        confirmBtn.onClick.AddListener(() => {
+            string password = pwdInput.text;
+            lobby.Password = password;
+
+            statusText.text = "Đang kiểm tra mật khẩu...";
+            confirmBtn.interactable = false;
+            cancelBtn.interactable = false;
+
+            LobbyManager.Instance.JoinLobby(lobby, (success, message) => {
+                if (success)
+                {
+                    Destroy(dialogOverlay);
+                }
+                else
+                {
+                    statusText.text = message;
+                    confirmBtn.interactable = true;
+                    cancelBtn.interactable = true;
+                }
+            });
+        });
+    }
+
+    private void JoinMockLobby(LobbyData lobby)
+    {
+        if (!CanStartNetwork())
+        {
+            return;
+        }
+
+        if (lobby.Type == LobbyType.Private)
+        {
+            ShowPasswordDialog(lobby);
+        }
+        else
+        {
+            SetConnectionStatus($"Đang kết nối đến {lobby.LobbyName}...");
+            LobbyManager.Instance.JoinLobby(lobby, (success, message) =>
+            {
+                if (!success)
+                {
+                    SetConnectionStatus("Kết nối thất bại: " + message);
+                }
+            });
+        }
     }
 
     private void StartGameFromLobby()
@@ -310,23 +576,21 @@ public class NetworkManagerUI : MonoBehaviour
 
     public void LeaveLobby()
     {
-        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+        LobbyManager.Instance.LeaveLobby((success, message) =>
         {
-            NetworkManager.Singleton.Shutdown();
-        }
-
-        if (GameStartSettings.StartMode == GameStartSettings.Mode.Single)
-        {
-            if (NetworkManager.Singleton != null)
+            if (GameStartSettings.StartMode == GameStartSettings.Mode.Single)
             {
-                Destroy(NetworkManager.Singleton.gameObject);
+                if (NetworkManager.Singleton != null)
+                {
+                    Destroy(NetworkManager.Singleton.gameObject);
+                }
+                UnityEngine.SceneManagement.SceneManager.LoadScene("StartGame");
             }
-            UnityEngine.SceneManagement.SceneManager.LoadScene("StartGame");
-        }
-        else
-        {
-            ShowConnectionPanel("Đã rời lobby.");
-        }
+            else
+            {
+                ShowConnectionPanel("Đã rời lobby.");
+            }
+        });
     }
 
     private bool CanStartNetwork()
@@ -494,6 +758,7 @@ public class NetworkManagerUI : MonoBehaviour
         gameObject.SetActive(true);
         SetPanelState(true, false, false);
         SetConnectionStatus(message);
+        RefreshLobbyListUI();
     }
 
     private void ShowLobbyPanel(string message)
@@ -537,7 +802,7 @@ public class NetworkManagerUI : MonoBehaviour
 
         if (inviteCodeText != null)
         {
-            inviteCodeText.text = "Mã mời: " + GetInviteCode();
+            inviteCodeText.text = "<b>Mã mời:</b> <color=#fbbf24>" + GetInviteCode() + "</color>";
         }
     }
 
@@ -712,10 +977,9 @@ public class NetworkManagerUI : MonoBehaviour
         RectTransform rootRect = GetOrAddRectTransform(gameObject);
         Stretch(rootRect);
 
-        // Warm organic board game colors matching StartGame
         Color panelTint = new Color(0.09f, 0.08f, 0.07f, 0.93f);
         Color boxBg = new Color(0.16f, 0.14f, 0.12f, 0.98f);
-        Color boxBorder = new Color(0.85f, 0.6f, 0.2f, 0.35f); // Elegant gold/amber outline
+        Color boxBorder = new Color(0.85f, 0.6f, 0.2f, 0.35f); 
         Color innerCardBg = new Color(0.1f, 0.09f, 0.08f, 0.95f);
         Color innerCardBorder = new Color(0.35f, 0.28f, 0.22f, 0.6f);
         Color goldColor = new Color(0.96f, 0.72f, 0.2f, 1f);
@@ -723,11 +987,10 @@ public class NetworkManagerUI : MonoBehaviour
         // 1. Connection Panel (Login Screen)
         connectionPanel = CreateFullscreenPanel("ConnectionPanel", panelTint);
         
-        // Glassmorphic outer container
         GameObject connectionBox = CreateBox(
             "ConnectionBox", 
             connectionPanel.transform, 
-            new Vector2(580f, 440f), 
+            new Vector2(840f, 500f), 
             Vector2.zero, 
             boxBg, 
             boxBorder
@@ -735,27 +998,70 @@ public class NetworkManagerUI : MonoBehaviour
         var animBox = connectionBox.AddComponent<UIAnimate>();
         animBox.animType = UIAnimate.AnimationType.CardPopIn;
 
-        var titleText = CreateText("Title", connectionBox.transform, "CARO ONLINE", 42f, TextAlignmentOptions.Center, new Vector2(460f, 60f), new Vector2(0f, 150f), goldColor);
+        // LEFT-SIDE Creation Form (Form setup centered around x = -200)
+        var titleText = CreateText("Title", connectionBox.transform, "CARO ONLINE", 32f, TextAlignmentOptions.Center, new Vector2(360f, 50f), new Vector2(-200f, 200f), goldColor);
         titleText.fontStyle = FontStyles.Bold;
         var animTitle = titleText.gameObject.AddComponent<UIAnimate>();
         animTitle.animType = UIAnimate.AnimationType.TextGlowPulse;
         
-        CreateText("Subtitle", connectionBox.transform, "HỆ THỐNG ĐẤU TRÍ THỜI GIAN THỰC", 13f, TextAlignmentOptions.Center, new Vector2(460f, 30f), new Vector2(0f, 110f), new Color(0.7f, 0.64f, 0.58f, 1f));
+        CreateText("Subtitle", connectionBox.transform, "HỆ THỐNG ĐẤU TRÍ THỜI GIAN THỰC", 11f, TextAlignmentOptions.Center, new Vector2(360f, 30f), new Vector2(-200f, 160f), new Color(0.7f, 0.64f, 0.58f, 1f));
 
-        inviteInputField = CreateInput(connectionBox.transform, "InviteInput", "IP:PORT, ví dụ 192.168.1.8:7777", new Vector2(440f, 48f), new Vector2(0f, 50f));
-        inviteInputField.text = DefaultClientAddress + ":" + currentPort;
-        
-        portInputField = CreateInput(connectionBox.transform, "PortInput", "Port", new Vector2(200f, 44f), new Vector2(-120f, -10f));
-        
-        startHostButton = CreateButton(connectionBox.transform, "HostButton", "Tạo phòng mới", new Vector2(210f, 50f), new Vector2(-110f, -85f), new Color(0.85f, 0.55f, 0.15f, 1f));
+        CreateText("LobbyTypeLabel", connectionBox.transform, "CHẾ ĐỘ PHÒNG", 11f, TextAlignmentOptions.MidlineLeft, new Vector2(320f, 20f), new Vector2(-200f, 135f), goldColor);
+
+        // Lobby Mode Selection Buttons
+        publicTypeBtn = CreateButton(connectionBox.transform, "PublicTypeBtn", "Công khai", new Vector2(100f, 30f), new Vector2(-305f, 105f), boxBg);
+        privateTypeBtn = CreateButton(connectionBox.transform, "PrivateTypeBtn", "Riêng tư", new Vector2(100f, 30f), new Vector2(-200f, 105f), boxBg);
+        rankingTypeBtn = CreateButton(connectionBox.transform, "RankingTypeBtn", "Xếp hạng", new Vector2(100f, 30f), new Vector2(-95f, 105f), boxBg);
+
+        CreateText("LobbyNameLabel", connectionBox.transform, "TÊN PHÒNG", 11f, TextAlignmentOptions.MidlineLeft, new Vector2(320f, 20f), new Vector2(-200f, 75f), goldColor);
+        lobbyNameInputField = CreateInput(connectionBox.transform, "LobbyNameInput", "Tên phòng caro", new Vector2(320f, 40f), new Vector2(-200f, 45f));
+        lobbyNameInputField.text = "Phòng Caro Vui Vẻ";
+
+        CreateText("PasswordLabel", connectionBox.transform, "MẬT KHẨU PHÒNG", 11f, TextAlignmentOptions.MidlineLeft, new Vector2(320f, 20f), new Vector2(-200f, 10f), goldColor);
+        lobbyPasswordInputField = CreateInput(connectionBox.transform, "LobbyPasswordInput", "Không cần mật khẩu", new Vector2(320f, 40f), new Vector2(-200f, -20f));
+
+        CreateText("PortLabel", connectionBox.transform, "CỔNG KẾT NỐI", 11f, TextAlignmentOptions.MidlineLeft, new Vector2(150f, 20f), new Vector2(-285f, -50f), goldColor);
+        portInputField = CreateInput(connectionBox.transform, "PortInput", "Cổng", new Vector2(150f, 40f), new Vector2(-285f, -80f));
+        portInputField.text = "7777";
+
+        startHostButton = CreateButton(connectionBox.transform, "CreateRoomBtn", "Tạo phòng mới", new Vector2(155f, 40f), new Vector2(-118f, -80f), new Color(0.85f, 0.55f, 0.15f, 1f));
         var animHost = startHostButton.gameObject.AddComponent<UIAnimate>();
         animHost.animType = UIAnimate.AnimationType.ButtonInteractive;
 
-        startClientButton = CreateButton(connectionBox.transform, "JoinButton", "Vào phòng chơi", new Vector2(210f, 50f), new Vector2(110f, -85f), new Color(0.1f, 0.55f, 0.35f, 1f));
-        var animJoin = startClientButton.gameObject.AddComponent<UIAnimate>();
-        animJoin.animType = UIAnimate.AnimationType.ButtonInteractive;
+        quickJoinButton = CreateButton(connectionBox.transform, "QuickJoinBtn", "VÀO CHƠI NHANH CÔNG KHAI", new Vector2(320f, 40f), new Vector2(-200f, -135f), new Color(0.1f, 0.55f, 0.35f, 1f));
+        var animQuick = quickJoinButton.gameObject.AddComponent<UIAnimate>();
+        animQuick.animType = UIAnimate.AnimationType.ButtonInteractive;
+
+        connectionStatusText = CreateText("ConnectionStatus", connectionBox.transform, string.Empty, 14f, TextAlignmentOptions.Center, new Vector2(320f, 40f), new Vector2(-200f, -190f), new Color(0.85f, 0.8f, 0.75f, 1f));
+
+        // RIGHT-SIDE Lobby Browser (Form setup centered around x = 200)
+        GameObject lobbyBrowserCard = CreateBox(
+            "LobbyBrowserCard", 
+            connectionBox.transform, 
+            new Vector2(380f, 320f), 
+            new Vector2(200f, -15f), 
+            innerCardBg, 
+            innerCardBorder
+        );
+
+        var browserTitle = CreateText("BrowserTitle", connectionBox.transform, "SẢNH ĐẤU CÔNG KHAI", 18f, TextAlignmentOptions.MidlineLeft, new Vector2(220f, 30f), new Vector2(120f, 175f), goldColor);
+        browserTitle.fontStyle = FontStyles.Bold;
+
+        refreshLobbiesButton = CreateButton(connectionBox.transform, "RefreshLobbiesBtn", "Làm mới", new Vector2(100f, 30f), new Vector2(330f, 175f), new Color(0.45f, 0.36f, 0.28f, 1f));
+        var animRefresh = refreshLobbiesButton.gameObject.AddComponent<UIAnimate>();
+        animRefresh.animType = UIAnimate.AnimationType.ButtonInteractive;
+
+        lobbyListContainer = CreateUIObject("LobbyListContainer", lobbyBrowserCard.transform);
+        Stretch(lobbyListContainer.GetComponent<RectTransform>(), 10f, 10f, 10f, 10f);
+
+        // Invite code joining section at the bottom right
+        CreateText("InviteLabel", connectionBox.transform, "HOẶC KẾT NỐI BẰNG MÃ MỜI:", 11f, TextAlignmentOptions.MidlineLeft, new Vector2(380f, 20f), new Vector2(200f, -200f), goldColor);
         
-        connectionStatusText = CreateText("ConnectionStatus", connectionBox.transform, string.Empty, 18f, TextAlignmentOptions.Center, new Vector2(480f, 70f), new Vector2(0f, -165f), new Color(0.85f, 0.8f, 0.75f, 1f));
+        inviteInputField = CreateInput(connectionBox.transform, "InviteInput", "IP:PORT, ví dụ 192.168.1.8:7777", new Vector2(240f, 40f), new Vector2(130f, -230f));
+        
+        startClientButton = CreateButton(connectionBox.transform, "JoinByCodeBtn", "Kết nối", new Vector2(120f, 40f), new Vector2(320f, -230f), new Color(0.1f, 0.45f, 0.6f, 1f));
+        var animStartClient = startClientButton.gameObject.AddComponent<UIAnimate>();
+        animStartClient.animType = UIAnimate.AnimationType.ButtonInteractive;
 
         // 2. Lobby Panel (Waiting Room)
         lobbyPanel = CreateFullscreenPanel("LobbyPanel", panelTint);
@@ -780,7 +1086,6 @@ public class NetworkManagerUI : MonoBehaviour
         var animCopy = copyInviteButton.gameObject.AddComponent<UIAnimate>();
         animCopy.animType = UIAnimate.AnimationType.ButtonInteractive;
         
-        // Inner dashboard panels
         GameObject playerListCard = CreateBox(
             "PlayerListCard", 
             lobbyBox.transform, 
@@ -818,7 +1123,7 @@ public class NetworkManagerUI : MonoBehaviour
         var exitText = gameplayExitButton.GetComponentInChildren<TextMeshProUGUI>();
         if (exitText != null)
         {
-            exitText.color = new Color(0.96f, 0.72f, 0.2f, 1f); // Màu vàng Amber/Gold giống sảnh chờ của bạn
+            exitText.color = new Color(0.96f, 0.72f, 0.2f, 1f);
         }
         var animExit = gameplayExitButton.gameObject.AddComponent<UIAnimate>();
         animExit.animType = UIAnimate.AnimationType.ButtonInteractive;
@@ -828,6 +1133,126 @@ public class NetworkManagerUI : MonoBehaviour
         exitRect.anchorMax = new Vector2(1f, 1f);
         exitRect.pivot = new Vector2(1f, 1f);
         gameplayPanel.SetActive(false);
+    }
+
+    private void SelectLobbyType(LobbyType lobbyType)
+    {
+        selectedLobbyType = lobbyType;
+
+        Color selectedColor = new Color(0.96f, 0.72f, 0.2f, 1f); 
+        Color defaultColor = new Color(0.16f, 0.14f, 0.12f, 0.98f); 
+
+        if (publicTypeBtn != null) publicTypeBtn.image.color = (lobbyType == LobbyType.Public) ? selectedColor : defaultColor;
+        if (privateTypeBtn != null) privateTypeBtn.image.color = (lobbyType == LobbyType.Private) ? selectedColor : defaultColor;
+        if (rankingTypeBtn != null) rankingTypeBtn.image.color = (lobbyType == LobbyType.Ranking) ? selectedColor : defaultColor;
+
+        if (lobbyPasswordInputField != null)
+        {
+            if (lobbyType == LobbyType.Private)
+            {
+                lobbyPasswordInputField.interactable = true;
+                var placeholder = lobbyPasswordInputField.placeholder as TextMeshProUGUI;
+                if (placeholder != null) placeholder.text = "Nhập mật khẩu (tùy chọn)";
+            }
+            else
+            {
+                lobbyPasswordInputField.text = string.Empty;
+                lobbyPasswordInputField.interactable = false;
+                var placeholder = lobbyPasswordInputField.placeholder as TextMeshProUGUI;
+                if (placeholder != null) placeholder.text = "Không cần mật khẩu";
+            }
+        }
+
+        if (lobbyNameInputField != null)
+        {
+            if (lobbyType == LobbyType.Ranking)
+            {
+                lobbyNameInputField.text = string.Empty;
+                lobbyNameInputField.interactable = false;
+                var placeholder = lobbyNameInputField.placeholder as TextMeshProUGUI;
+                if (placeholder != null) placeholder.text = "Tên phòng tự động";
+            }
+            else
+            {
+                lobbyNameInputField.interactable = true;
+                var placeholder = lobbyNameInputField.placeholder as TextMeshProUGUI;
+                if (placeholder != null) placeholder.text = "Tên phòng caro";
+            }
+        }
+    }
+
+    private void RefreshLobbyListUI()
+    {
+        if (lobbyListContainer == null) return;
+
+        for (int i = lobbyListContainer.transform.childCount - 1; i >= 0; i--)
+        {
+            Destroy(lobbyListContainer.transform.GetChild(i).gameObject);
+        }
+
+        var service = LobbyManager.Instance != null ? LobbyManager.Instance.GetLobbyService() : null;
+        if (service == null) return;
+
+        var lobbies = service.QueryPublicLobbies();
+        Debug.Log($"[DIAGNOSTIC] Number of queried lobbies: {lobbies.Count}");
+        foreach (var l in lobbies)
+        {
+            Debug.Log($"[DIAGNOSTIC] Queried lobby - Name: '{l.LobbyName}', Id: '{l.LobbyId}', IsPrivate: {l.IsPrivate}");
+        }
+
+        int index = 0;
+        
+        foreach (var lobby in lobbies)
+        {
+            if ((lobby.Type != LobbyType.Public && lobby.Type != LobbyType.Private) || lobby.CurrentPlayers >= lobby.MaxPlayers)
+            {
+                continue;
+            }
+
+            float yPos = 110f - index * 48f;
+            if (yPos < -130f) break; 
+
+            GameObject row = CreateUIObject("LobbyRow_" + index, lobbyListContainer.transform);
+            RectTransform rowRect = row.GetComponent<RectTransform>();
+            rowRect.anchorMin = new Vector2(0.5f, 0.5f);
+            rowRect.anchorMax = new Vector2(0.5f, 0.5f);
+            rowRect.pivot = new Vector2(0.5f, 0.5f);
+            rowRect.anchoredPosition = new Vector2(0f, yPos);
+            rowRect.sizeDelta = new Vector2(340f, 40f);
+
+            Image rowBg = row.AddComponent<Image>();
+            rowBg.sprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/Background.psd");
+            rowBg.type = Image.Type.Sliced;
+            rowBg.color = new Color(0.12f, 0.1f, 0.08f, 0.6f);
+
+            string typeLabel;
+            if (lobby.Type == LobbyType.Public)
+            {
+                typeLabel = "<color=#10b981>🟢 Public</color>";
+            }
+            else if (lobby.Type == LobbyType.Private)
+            {
+                typeLabel = "<color=#ef4444>🔒 Private</color>";
+            }
+            else
+            {
+                typeLabel = "<color=#fbbf24>⭐ Ranking</color>";
+            }
+            string textContent = $"{lobby.LobbyName} ({lobby.CurrentPlayers}/{lobby.MaxPlayers}) - {typeLabel}";
+            var text = CreateText("Text", row.transform, textContent, 14f, TextAlignmentOptions.MidlineLeft, new Vector2(260f, 35f), new Vector2(-20f, 0f), Color.white);
+            text.fontStyle = FontStyles.Bold;
+
+            var joinBtn = CreateButton(row.transform, "JoinButton", "Vào", new Vector2(60f, 30f), new Vector2(125f, 0f), new Color(0.1f, 0.55f, 0.35f, 1f));
+            var capturedLobby = lobby;
+            joinBtn.onClick.AddListener(() => JoinMockLobby(capturedLobby));
+
+            index++;
+        }
+
+        if (index == 0)
+        {
+            CreateText("NoLobbiesText", lobbyListContainer.transform, "Chưa có phòng công khai nào", 14f, TextAlignmentOptions.Center, new Vector2(300f, 30f), Vector2.zero, new Color(0.6f, 0.55f, 0.5f, 0.8f));
+        }
     }
 
     private GameObject CreateFullscreenPanel(string objectName, Color color)
@@ -854,7 +1279,6 @@ public class NetworkManagerUI : MonoBehaviour
 
     private GameObject CreateBox(string objectName, Transform parent, Vector2 size, Vector2 anchoredPosition, Color bgColor, Color borderColor)
     {
-        // 1. Create outer border card
         GameObject borderBox = CreateUIObject(objectName + "_Border", parent);
         RectTransform borderRect = borderBox.GetComponent<RectTransform>();
         borderRect.anchorMin = new Vector2(0.5f, 0.5f);
@@ -868,10 +1292,9 @@ public class NetworkManagerUI : MonoBehaviour
         borderImage.type = Image.Type.Sliced;
         borderImage.color = borderColor;
 
-        // 2. Create inner background card
         GameObject bgBox = CreateUIObject(objectName, borderBox.transform);
         RectTransform bgRect = bgBox.GetComponent<RectTransform>();
-        Stretch(bgRect, 2f, 2f, 2f, 2f); // 2px border width
+        Stretch(bgRect, 2f, 2f, 2f, 2f); 
 
         Image bgImage = bgBox.AddComponent<Image>();
         bgImage.sprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/Background.psd");
@@ -883,7 +1306,6 @@ public class NetworkManagerUI : MonoBehaviour
 
     private TMP_InputField CreateInput(Transform parent, string objectName, string placeholder, Vector2 size, Vector2 anchoredPosition)
     {
-        // Outer input border
         GameObject inputBorder = CreateUIObject(objectName + "_Border", parent);
         RectTransform borderRect = inputBorder.GetComponent<RectTransform>();
         borderRect.anchorMin = new Vector2(0.5f, 0.5f);
@@ -895,9 +1317,8 @@ public class NetworkManagerUI : MonoBehaviour
         Image borderImage = inputBorder.AddComponent<Image>();
         borderImage.sprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/Background.psd");
         borderImage.type = Image.Type.Sliced;
-        borderImage.color = new Color(0.4f, 0.33f, 0.25f, 0.8f); // Bronze outline
+        borderImage.color = new Color(0.4f, 0.33f, 0.25f, 0.8f); 
 
-        // Inner input background
         GameObject inputObject = CreateUIObject(objectName, inputBorder.transform);
         RectTransform rectTransform = inputObject.GetComponent<RectTransform>();
         Stretch(rectTransform, 1.5f, 1.5f, 1.5f, 1.5f);
@@ -905,7 +1326,7 @@ public class NetworkManagerUI : MonoBehaviour
         Image image = inputObject.AddComponent<Image>();
         image.sprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/Background.psd");
         image.type = Image.Type.Sliced;
-        image.color = new Color(0.09f, 0.08f, 0.07f, 0.95f); // Very dark brown background
+        image.color = new Color(0.09f, 0.08f, 0.07f, 0.95f); 
 
         TMP_InputField inputField = inputObject.AddComponent<TMP_InputField>();
         inputField.targetGraphic = image;
@@ -974,6 +1395,10 @@ public class NetworkManagerUI : MonoBehaviour
         rectTransform.sizeDelta = size;
 
         TextMeshProUGUI textComponent = textObject.AddComponent<TextMeshProUGUI>();
+        if (vietnameseFont != null)
+        {
+            textComponent.font = vietnameseFont;
+        }
         textComponent.text = text;
         textComponent.fontSize = fontSize;
         textComponent.color = color;
@@ -1052,5 +1477,25 @@ public class NetworkManagerUI : MonoBehaviour
         agent.Configure(GameManager.Instance);
         agentObject.SetActive(true);
         Debug.Log("StartGameManager: Đã khởi tạo AI CaroGameplayAgent thành công với mô hình ONNX.");
+    }
+
+    private void ParseConnectionCode(string code, out string address, out ushort port)
+    {
+        address = DefaultClientAddress;
+        port = 7777;
+
+        if (string.IsNullOrWhiteSpace(code)) return;
+
+        int idx = code.LastIndexOf(':');
+        if (idx > 0 && idx < code.Length - 1)
+        {
+            address = code.Substring(0, idx).Trim();
+            string pStr = code.Substring(idx + 1).Trim();
+            ushort.TryParse(pStr, out port);
+        }
+        else
+        {
+            address = code.Trim();
+        }
     }
 }
