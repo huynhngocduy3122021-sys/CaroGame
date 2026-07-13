@@ -94,7 +94,7 @@ public class CaroAgent : Agent
             return;
         }
 
-        // Check defensive actions before placing AI stone
+        // Kiểm tra các nước đi phòng thủ trước khi đặt quân cờ AI.
         int opponentPotentialLine = GetLongestLineThrough(x, y, Opponent);
         int opponentOpenEnds = CountOpenEnds(x, y, Opponent);
 
@@ -545,12 +545,7 @@ public class CaroAgent : Agent
                CountLine(x, y, 1, -1, player) >= 5;
     }
 
-    private int CountDirection(
-        int x,
-        int y,
-        int dx,
-        int dy,
-        int player)
+    private int CountDirection(int x,int y,int dx,int dy,int player)
     {
         int count = 0;
         int currentX = x + dx;
