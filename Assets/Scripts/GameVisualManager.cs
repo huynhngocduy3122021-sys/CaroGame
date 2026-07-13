@@ -27,6 +27,7 @@ public class GameVisualManager : NetworkBehaviour
         GameManager.Instance.OnGripPositionClicked += GameManager_OnGripPositionClicked;
         GameManager.Instance.OnGameWin += GameManager_OnGameWin;
         GameManager.Instance.OnRematch += GameManager_OnRematch;
+        GameManager.Instance.OnGameReturnedToLobby += GameManager_OnGameReturnedToLobby;
 
         if (GameManager.Instance.lastMovePosition != null)
         {
@@ -45,6 +46,7 @@ public class GameVisualManager : NetworkBehaviour
             GameManager.Instance.OnGripPositionClicked -= GameManager_OnGripPositionClicked;
             GameManager.Instance.OnGameWin -= GameManager_OnGameWin;
             GameManager.Instance.OnRematch -= GameManager_OnRematch;
+            GameManager.Instance.OnGameReturnedToLobby -= GameManager_OnGameReturnedToLobby;
 
             if (GameManager.Instance.lastMovePosition != null)
             {
@@ -255,6 +257,12 @@ public class GameVisualManager : NetworkBehaviour
             }
         }
         pieceDictionary.Clear();
+    }
+
+    private void GameManager_OnGameReturnedToLobby(object sender, System.EventArgs e)
+    {
+        // Khi quay lại sảnh (ví dụ có người chơi thoát), dọn dẹp bàn cờ giống như khi Rematch
+        GameManager_OnRematch(sender, e);
     }
 
     private void GameManager_OnGameWin(object sender, GameManager.OnGameWinEventArgs e)

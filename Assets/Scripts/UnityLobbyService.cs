@@ -93,22 +93,30 @@ public class UnityLobbyService : ILobbyService
                                        l.ConnectionCode == lobbyData.ConnectionCode);
         if (match == null)
         {
-            onComplete?.Invoke(false, "Không tìm thấy phòng.");
-            return;
-        }
-
-        if (match.Type == LobbyType.Private)
-        {
-            if (match.Password != lobbyData.Password)
+            // Nếu không tìm thấy trong mock registry (do khác máy tính), vẫn cho phép kết nối thẳng qua IP
+            if (string.IsNullOrEmpty(lobbyData.ConnectionCode))
             {
-                onComplete?.Invoke(false, "Mật khẩu phòng không đúng!");
+                onComplete?.Invoke(false, "Không tìm thấy phòng.");
                 return;
             }
+            activeLobbyId = string.IsNullOrEmpty(lobbyData.LobbyId) ? Guid.NewGuid().ToString() : lobbyData.LobbyId;
+            currentLobbyData = lobbyData;
         }
+        else
+        {
+            if (match.Type == LobbyType.Private)
+            {
+                if (match.Password != lobbyData.Password)
+                {
+                    onComplete?.Invoke(false, "Mật khẩu phòng không đúng!");
+                    return;
+                }
+            }
 
-        lobbyData.ConnectionCode = match.ConnectionCode;
-        activeLobbyId = match.LobbyId;
-        lobbyData.LobbyId = match.LobbyId;
+            lobbyData.ConnectionCode = match.ConnectionCode;
+            activeLobbyId = match.LobbyId;
+            lobbyData.LobbyId = match.LobbyId;
+        }
 
         ParseConnectionCode(lobbyData.ConnectionCode, out string address, out ushort port);
         unityTransport.SetConnectionData(address, port);

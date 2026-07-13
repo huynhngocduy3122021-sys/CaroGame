@@ -204,6 +204,21 @@ public class MockLobbyService : ILobbyService
     }
 
     // Static helper methods for reading/writing the common registry file
+    public static void ClearAllLobbies()
+    {
+        try
+        {
+            if (File.Exists(FilePath))
+            {
+                File.Delete(FilePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning("Error clearing mock lobbies: " + ex.Message);
+        }
+    }
+
     public static List<SerializableLobbyData> GetLobbies()
     {
         return GetLobbiesStatic();

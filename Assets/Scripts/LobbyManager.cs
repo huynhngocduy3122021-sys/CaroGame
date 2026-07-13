@@ -26,6 +26,7 @@ public class LobbyManager : MonoBehaviour
         {
             Instance = this;
             DontDestroyOnLoad(gameObject);
+            MockLobbyService.ClearAllLobbies();
             Bootstrap();
         }
         else
