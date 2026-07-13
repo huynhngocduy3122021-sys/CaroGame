@@ -235,7 +235,6 @@ public class GameManager : NetworkBehaviour
     {
         ResetBoardState();
         currentPlayerType.Value = PlayerType.None;
-        TriggerOnRematchRpc();
         isGameStarted.Value = false;
     }
 

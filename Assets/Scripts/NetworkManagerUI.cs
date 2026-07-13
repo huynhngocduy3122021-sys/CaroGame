@@ -576,6 +576,18 @@ public class NetworkManagerUI : MonoBehaviour
 
     public void LeaveLobby()
     {
+        // Ẩn gameplay panel ngay lập tức khi rời
+        if (gameplayPanel != null)
+        {
+            gameplayPanel.SetActive(false);
+        }
+
+        // QUAN TRỌNG: Disconnect network trước khi rời lobby
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+        {
+            NetworkManager.Singleton.Shutdown();
+        }
+
         LobbyManager.Instance.LeaveLobby((success, message) =>
         {
             if (GameStartSettings.StartMode == GameStartSettings.Mode.Single)
