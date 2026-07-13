@@ -24,6 +24,8 @@ public class GameOverUI : MonoBehaviour
         if (exitGameButton != null)
         {
             exitGameButton.onClick.AddListener(() => {
+                // Ẩn panel ngay lập tức trước khi rời lobby
+                hide();
                 if (NetworkManagerUI.Instance != null)
                 {
                     NetworkManagerUI.Instance.LeaveLobby();
@@ -37,10 +39,28 @@ public class GameOverUI : MonoBehaviour
     {
         GameManager.Instance.OnGameWin += GameManager_OnGameWin;
         GameManager.Instance.OnRematch += GameManager_OnRematch;
+        GameManager.Instance.OnGameReturnedToLobby += GameManager_OnGameReturnedToLobby;
         hide();
     }
+
+    private void OnDestroy()
+    {
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.OnGameWin -= GameManager_OnGameWin;
+            GameManager.Instance.OnRematch -= GameManager_OnRematch;
+            GameManager.Instance.OnGameReturnedToLobby -= GameManager_OnGameReturnedToLobby;
+        }
+    }
+
     private void GameManager_OnRematch(object sender, System.EventArgs e)
     {
+        hide();
+    }
+
+    private void GameManager_OnGameReturnedToLobby(object sender, System.EventArgs e)
+    {
+        // Khi đối thủ rời, game quay về lobby - ẩn panel game over
         hide();
     }
     private void GameManager_OnGameWin(object sender, GameManager.OnGameWinEventArgs e)
