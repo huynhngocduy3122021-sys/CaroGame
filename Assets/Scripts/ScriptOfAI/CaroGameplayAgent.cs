@@ -41,13 +41,6 @@ public class CaroGameplayAgent : Agent
             return;
         }
 
-        if (!gameManager.IsAIGame())
-        {
-            Debug.Log("CaroGameplayAgent: Chế độ AI không kích hoạt, tắt script AI.");
-            enabled = false;
-            return;
-        }
-
         gameManager.OnGripPositionClicked += OnMovePlaced;
         gameManager.OnRematch += OnRematch;
         initialized = true;
@@ -94,6 +87,7 @@ public class CaroGameplayAgent : Agent
         waitingForDecision = false;
 
         if (gameManager == null ||
+            !gameManager.IsAIGame() ||
             gameManager.GetCurrentPlayerType() != GameManager.PlayerType.Circle)
         {
             return;
@@ -275,7 +269,8 @@ public class CaroGameplayAgent : Agent
             eventArgs.playerType == GameManager.PlayerType.Circle ? 1 : -1;
 
         if (eventArgs.playerType == GameManager.PlayerType.Cross &&
-            !waitingForDecision)
+            !waitingForDecision &&
+            gameManager.IsAIGame())
         {
             waitingForDecision = true;
             StartCoroutine(RequestDecisionAfterGameManagerSettles());

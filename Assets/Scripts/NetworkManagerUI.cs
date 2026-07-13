@@ -487,8 +487,8 @@ public class NetworkManagerUI : MonoBehaviour
         boxRect.sizeDelta = new Vector2(360f, 220f);
 
         Image boxBg = box.AddComponent<Image>();
-        boxBg.sprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/Background.psd");
-        boxBg.type = Image.Type.Sliced;
+        boxBg.sprite = null;
+        boxBg.type = Image.Type.Simple;
         boxBg.color = new Color(0.15f, 0.13f, 0.11f, 1f);
 
         Color goldColor = new Color(0.9f, 0.75f, 0.15f, 1f);
@@ -1233,8 +1233,8 @@ public class NetworkManagerUI : MonoBehaviour
             rowRect.sizeDelta = new Vector2(340f, 40f);
 
             Image rowBg = row.AddComponent<Image>();
-            rowBg.sprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/Background.psd");
-            rowBg.type = Image.Type.Sliced;
+            rowBg.sprite = null;
+            rowBg.type = Image.Type.Simple;
             rowBg.color = new Color(0.12f, 0.1f, 0.08f, 0.6f);
 
             string typeLabel;
@@ -1300,8 +1300,8 @@ public class NetworkManagerUI : MonoBehaviour
         borderRect.sizeDelta = size;
 
         Image borderImage = borderBox.AddComponent<Image>();
-        borderImage.sprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/Background.psd");
-        borderImage.type = Image.Type.Sliced;
+        borderImage.sprite = null;
+        borderImage.type = Image.Type.Simple;
         borderImage.color = borderColor;
 
         GameObject bgBox = CreateUIObject(objectName, borderBox.transform);
@@ -1309,8 +1309,8 @@ public class NetworkManagerUI : MonoBehaviour
         Stretch(bgRect, 2f, 2f, 2f, 2f); 
 
         Image bgImage = bgBox.AddComponent<Image>();
-        bgImage.sprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/Background.psd");
-        bgImage.type = Image.Type.Sliced;
+        bgImage.sprite = null;
+        bgImage.type = Image.Type.Simple;
         bgImage.color = bgColor;
 
         return bgBox;
@@ -1327,8 +1327,8 @@ public class NetworkManagerUI : MonoBehaviour
         borderRect.sizeDelta = size;
 
         Image borderImage = inputBorder.AddComponent<Image>();
-        borderImage.sprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/Background.psd");
-        borderImage.type = Image.Type.Sliced;
+        borderImage.sprite = null;
+        borderImage.type = Image.Type.Simple;
         borderImage.color = new Color(0.4f, 0.33f, 0.25f, 0.8f); 
 
         GameObject inputObject = CreateUIObject(objectName, inputBorder.transform);
@@ -1336,8 +1336,8 @@ public class NetworkManagerUI : MonoBehaviour
         Stretch(rectTransform, 1.5f, 1.5f, 1.5f, 1.5f);
 
         Image image = inputObject.AddComponent<Image>();
-        image.sprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/Background.psd");
-        image.type = Image.Type.Sliced;
+        image.sprite = null;
+        image.type = Image.Type.Simple;
         image.color = new Color(0.09f, 0.08f, 0.07f, 0.95f); 
 
         TMP_InputField inputField = inputObject.AddComponent<TMP_InputField>();
@@ -1373,8 +1373,8 @@ public class NetworkManagerUI : MonoBehaviour
         rectTransform.sizeDelta = size;
 
         Image image = buttonObject.AddComponent<Image>();
-        image.sprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/UISprite.psd");
-        image.type = Image.Type.Sliced;
+        image.sprite = null;
+        image.type = Image.Type.Simple;
         image.color = color;
 
         Button button = buttonObject.AddComponent<Button>();

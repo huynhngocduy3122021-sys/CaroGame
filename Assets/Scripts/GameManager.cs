@@ -77,6 +77,10 @@ public class GameManager : NetworkBehaviour
             // Host (ClientId = 0) mặc định luôn là Cross
             AssignPlayerTypeRpc(NetworkManager.Singleton.LocalClientId, PlayerType.Cross);
             RefreshLobbyPlayerCount();
+            
+            // Reset điểm khi tạo phòng mới
+            playerCrossScore.Value = 0;
+            playerCircleScore.Value = 0;
         }
 
         lobbyPlayerCount.OnValueChanged += LobbyPlayerCount_OnValueChanged;
@@ -234,6 +238,11 @@ public class GameManager : NetworkBehaviour
     private void ReturnToLobbyAfterPlayerExit()
     {
         ResetBoardState();
+        if (IsServer)
+        {
+            playerCrossScore.Value = 0;
+            playerCircleScore.Value = 0;
+        }
         currentPlayerType.Value = PlayerType.None;
         isGameStarted.Value = false;
     }
