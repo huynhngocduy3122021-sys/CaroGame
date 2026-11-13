@@ -22,6 +22,9 @@ public class NetworkManagerUI : MonoBehaviour
     [SerializeField] private TextMeshProUGUI connectionStatusText;
     [SerializeField] private ModelAsset aiModel;
 
+    [Header("Cấu hình AI")]
+    [SerializeField] private bool useSearchAI = true;
+
     [Header("Lobby")]
     [SerializeField] private GameObject connectionPanel;
     [SerializeField] private GameObject lobbyPanel;
@@ -1460,7 +1463,7 @@ public class NetworkManagerUI : MonoBehaviour
     {
         yield return new WaitUntil(() => GameManager.Instance != null && GameManager.Instance.IsSpawned);
 
-        if (aiModel == null)
+        if (!useSearchAI && aiModel == null)
         {
             Debug.LogError("AI model is not assigned in NetworkManagerUI.");
             NetworkManager.Singleton.Shutdown();
@@ -1468,7 +1471,27 @@ public class NetworkManagerUI : MonoBehaviour
         }
 
         GameManager.Instance.StartAIGame();
-        CreateGameplayAgent();
+
+        if (useSearchAI)
+        {
+            CreateSearchGameplayAgent();
+        }
+        else
+        {
+            CreateGameplayAgent();
+        }
+    }
+
+    private void CreateSearchGameplayAgent()
+    {
+        GameObject agentObject = new GameObject("CaroSearchGameplayAgent");
+        agentObject.SetActive(false);
+
+        CaroSearchGameplayAgent agent = agentObject.AddComponent<CaroSearchGameplayAgent>();
+        agent.Configure(GameManager.Instance);
+        agentObject.SetActive(true);
+
+        Debug.Log("StartGameManager: Đã kết nối CaroSearchGameplayAgent với thuật toán Alpha-Beta.");
     }
 
     private void CreateGameplayAgent()
