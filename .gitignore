@@ -32,3 +32,24 @@ venv/
 .agent/
 .agents/
 .gemini/
+
+# Bản sao khôi phục của Unity; đây là file backup của Editor, không phải dữ liệu game.
+Assets/_Recovery/
+
+# Material được tạo tự động bởi tool Editor; có thể tạo lại khi cần.
+Assets/GeneratedSpriteMaterials*
+
+# File timer do ML-Agents tạo trong quá trình training hoặc chạy Editor.
+Assets/ML-Agents/Timers/
+
+# Toàn bộ tài nguyên và tool Editor của DreamStudio, không thuộc game Caro.
+Assets/DreamStudioTeamVN/
+Assets/DreamStudioTeamVN.meta
+Assets/Editor/DreamStudio*.cs
+Assets/Editor/DreamStudio*.cs.meta
+Assets/Editor/CustomTutorialWindow.cs
+Assets/Editor/CustomTutorialWindow.cs.meta
+Assets/Editor/TutorialData.asset
+Assets/Editor/TutorialData.asset.meta
+Assets/Editor/TutorialData.cs
+Assets/Editor/TutorialData.cs.meta
