@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Threading.Tasks;
 using UnityEngine;
 
 /// <summary>
@@ -7,23 +8,22 @@ using UnityEngine;
 /// </summary>
 public sealed class CaroSearchGameplayAgent : MonoBehaviour
 {
-    [Header("Cấu hình tìm kiếm")]
-    [SerializeField] private int searchDepth = 3;
-    [SerializeField] private int timeLimitMilliseconds = 150;
-    [SerializeField] private int candidateRadius = 2;
-    [SerializeField] private int maxCandidates = 32;
+    [Header("Độ khó AI")]
+    [SerializeField] private CaroDifficulty difficulty = CaroDifficulty.Hard;
 
     // Các thành phần điều khiển ván chơi, trạng thái bàn và bộ tìm kiếm.
     private GameManager gameManager;
     private CaroAiBoard board;
-    private CaroAlphaBetaSearch search;
+    private CaroDifficultySettings settings;
+    private int boardRevision;
     private bool initialized;
     private bool waitingForDecision;
 
-    /// <summary>Nhận GameManager hiện tại để AI gửi nước đi vào game.</summary>
-    public void Configure(GameManager manager)
+    /// <summary>Nhận GameManager và độ khó trước khi bật Agent.</summary>
+    public void Configure(GameManager manager, CaroDifficulty selectedDifficulty)
     {
         gameManager = manager;
+        difficulty = selectedDifficulty;
     }
 
     /// <summary>Khởi tạo bàn tìm kiếm và đăng ký các sự kiện của GameManager.</summary>
@@ -42,11 +42,7 @@ public sealed class CaroSearchGameplayAgent : MonoBehaviour
         }
 
         board = new CaroAiBoard(GameManager.BoardPointsX, GameManager.BoardPointsY);
-        search = new CaroAlphaBetaSearch(
-            CaroAiRules.DefaultWinLength,
-            candidateRadius,
-            maxCandidates);
-
+        settings = CaroDifficultySettings.For(difficulty);
         gameManager.OnGripPositionClicked += OnMovePlaced;
         gameManager.OnRematch += OnRematch;
         initialized = true;
@@ -71,6 +67,7 @@ public sealed class CaroSearchGameplayAgent : MonoBehaviour
             Debug.LogWarning($"AI tìm kiếm bỏ qua cập nhật bàn cờ không hợp lệ ({eventArgs.x}, {eventArgs.y}).");
             return;
         }
+        boardRevision++;
 
         if (eventArgs.playerType == GameManager.PlayerType.Cross &&
             !waitingForDecision &&
@@ -81,7 +78,7 @@ public sealed class CaroSearchGameplayAgent : MonoBehaviour
         }
     }
 
-    /// <summary>Đợi GameManager cập nhật xong lượt rồi mới tìm và gửi nước AI.</summary>
+    /// <summary>Đợi lượt ổn định, tính trên bản sao bàn cờ ở luồng nền rồi đặt nước hợp lệ.</summary>
     private IEnumerator RequestSearchMoveAfterGameManagerSettles()
     {
         yield return null;
@@ -94,13 +91,39 @@ public sealed class CaroSearchGameplayAgent : MonoBehaviour
             yield break;
         }
 
-        int move = search.FindBestMove(
-            board,
-            CaroAiRules.AiPlayer,
-            timeLimitMilliseconds,
-            searchDepth);
+        // Tạo bản sao trên main thread; worker chỉ đụng dữ liệu C# thuần, không gọi Unity API.
+        int revision = boardRevision;
+        var snapshot = new CaroAiBoard(board.Width, board.Height);
+        for (int index = 0; index < board.CellCount; index++)
+        {
+            if (board.Cells[index] != 0) snapshot.ApplyIndex(index, board.Cells[index]);
+        }
+        CaroDifficultySettings searchSettings = settings;
+        bool isHard = difficulty == CaroDifficulty.Hard;
+        Task<int> task = Task.Run(() =>
+        {
+            var search = new CaroAlphaBetaSearch(
+                CaroAiRules.DefaultWinLength,
+                searchSettings.CandidateRadius,
+                searchSettings.MaxCandidates);
+            return search.FindBestMove(snapshot, CaroAiRules.AiPlayer,
+                searchSettings.TimeLimitMs, searchSettings.Depth, isHard);
+        });
+        while (!task.IsCompleted) yield return null;
 
         waitingForDecision = false;
+        if (task.IsFaulted)
+        {
+            Debug.LogError($"AI tìm kiếm gặp lỗi: {task.Exception}");
+            yield break;
+        }
+        if (revision != boardRevision || gameManager == null ||
+            !gameManager.IsAIGame() ||
+            gameManager.GetCurrentPlayerType() != GameManager.PlayerType.Circle)
+        {
+            yield break;
+        }
+        int move = task.Result;
 
         if (move < 0)
         {
@@ -120,6 +143,7 @@ public sealed class CaroSearchGameplayAgent : MonoBehaviour
     /// <summary>Xóa trạng thái bàn cờ nội bộ khi người chơi bắt đầu ván mới.</summary>
     private void OnRematch(object sender, System.EventArgs eventArgs)
     {
+        boardRevision++;
         board?.Clear();
         waitingForDecision = false;
     }

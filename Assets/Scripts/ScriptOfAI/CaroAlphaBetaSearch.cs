@@ -38,7 +38,8 @@ public sealed class CaroAlphaBetaSearch
         CaroAiBoard board,
         int player,
         int timeLimitMs,
-        int requestedDepth)
+        int requestedDepth,
+        bool prioritizeOpenThree = false)
     {
         if (board.MoveCount == 0)
         {
@@ -58,20 +59,39 @@ public sealed class CaroAlphaBetaSearch
         }
 
         // Luôn xử lý nước thắng trực tiếp trước khi chạy tìm kiếm sâu.
-        int winningMove = FindImmediateMove(board, candidates, player);
-        if (winningMove >= 0)
+        List<int> winningMoves = CaroThreatAnalyzer.FindImmediateWins(board, candidates, player, winLength);
+        if (winningMoves.Count > 0)
         {
-            return winningMove;
+            return winningMoves[0];
         }
 
         // Nếu đối thủ có đúng một nước thắng kế tiếp, phải chặn nước đó ngay.
-        List<int> forcedBlocks = FindImmediateMoves(board, candidates, -player);
+        List<int> forcedBlocks = CaroThreatAnalyzer.FindImmediateWins(board, candidates, -player, winLength);
         if (forcedBlocks.Count == 1)
         {
             return forcedBlocks[0];
         }
 
-        List<int> ordered = OrderAndLimit(board, forcedBlocks.Count > 1 ? forcedBlocks : candidates, player);
+        // Ba hở là nguy cơ tạo bốn hở ở lượt kế tiếp. Khi chưa có nước thắng,
+        // Hard chặn một đầu trước khi tiếp tục mở rộng chuỗi tấn công ngang mức.
+        if (prioritizeOpenThree && forcedBlocks.Count == 0)
+        {
+            List<int> openThreeBlocks = CaroThreatAnalyzer.FindOpenThreeBlocks(board, candidates, -player);
+            if (openThreeBlocks.Count > 0)
+            {
+                int bestBlock = openThreeBlocks[0];
+                int bestScore = int.MinValue;
+                foreach (int move in openThreeBlocks)
+                {
+                    int score = ScoreCandidate(board, move, player);
+                    if (score > bestScore) { bestScore = score; bestBlock = move; }
+                }
+                return bestBlock;
+            }
+        }
+
+        // Nhiều ô thắng của đối thủ không thể chặn hết bằng một nước; giữ cả nước phản công.
+        List<int> ordered = OrderAndLimit(board, candidates, player, forcedBlocks);
         if (ordered.Count == 0)
         {
             return -1;
@@ -228,7 +248,7 @@ public sealed class CaroAlphaBetaSearch
     }
 
     /// <summary>Sắp xếp ứng viên theo điểm tấn công/phòng thủ và cắt bớt nhánh.</summary>
-    private List<int> OrderAndLimit(CaroAiBoard board, List<int> candidates, int player)
+    private List<int> OrderAndLimit(CaroAiBoard board, List<int> candidates, int player, List<int> forced = null)
     {
         var ordered = new List<int>(candidates);
         ordered.Sort((left, right) =>
@@ -243,6 +263,17 @@ public sealed class CaroAlphaBetaSearch
             ordered.RemoveRange(maxCandidates, ordered.Count - maxCandidates);
         }
 
+        // Nước chặn bắt buộc được ưu tiên trước và không bị cắt bởi maxCandidates.
+        if (forced != null)
+        {
+            for (int i = forced.Count - 1; i >= 0; i--)
+            {
+                int move = forced[i];
+                ordered.Remove(move);
+                ordered.Insert(0, move);
+            }
+        }
+
         return ordered;
     }
 
@@ -251,37 +282,9 @@ public sealed class CaroAlphaBetaSearch
     {
         int attack = CaroAiEvaluator.ScoreMove(board, index, player);
         int defense = CaroAiEvaluator.ScoreMove(board, index, -player);
-        return attack + defense / 2;
-    }
-
-    /// <summary>Tìm nước thắng trực tiếp đầu tiên trong tập ứng viên.</summary>
-    private int FindImmediateMove(CaroAiBoard board, List<int> candidates, int player)
-    {
-        for (int i = 0; i < candidates.Count; i++)
-        {
-            if (CaroAiRules.IsWinningMove(board, candidates[i], player, winLength))
-            {
-                return candidates[i];
-            }
-        }
-
-        return -1;
-    }
-
-    /// <summary>Lấy toàn bộ nước có thể tạo thắng ngay, phục vụ việc bắt buộc chặn.</summary>
-    private List<int> FindImmediateMoves(CaroAiBoard board, List<int> candidates, int player)
-    {
-        var winningMoves = new List<int>();
-
-        for (int i = 0; i < candidates.Count; i++)
-        {
-            if (CaroAiRules.IsWinningMove(board, candidates[i], player, winLength))
-            {
-                winningMoves.Add(candidates[i]);
-            }
-        }
-
-        return winningMoves;
+        int attackThreat = CaroThreatAnalyzer.ScoreThreat(board, index, player, winLength);
+        int defenseThreat = CaroThreatAnalyzer.ScoreThreat(board, index, -player, winLength);
+        return attack + defense / 2 + attackThreat + defenseThreat / 2;
     }
 
     /// <summary>Kiểm tra bộ tìm kiếm đã vượt quá ngân sách thời gian hay chưa.</summary>

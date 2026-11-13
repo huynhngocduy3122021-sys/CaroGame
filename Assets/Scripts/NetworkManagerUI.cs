@@ -24,6 +24,8 @@ public class NetworkManagerUI : MonoBehaviour
 
     [Header("Cấu hình AI")]
     [SerializeField] private bool useSearchAI = true;
+    [Header("Độ khó khi chơi với máy")]
+    [SerializeField] private CaroDifficulty aiDifficulty = CaroDifficulty.Hard;
 
     [Header("Lobby")]
     [SerializeField] private GameObject connectionPanel;
@@ -1488,7 +1490,7 @@ public class NetworkManagerUI : MonoBehaviour
         agentObject.SetActive(false);
 
         CaroSearchGameplayAgent agent = agentObject.AddComponent<CaroSearchGameplayAgent>();
-        agent.Configure(GameManager.Instance);
+        agent.Configure(GameManager.Instance, aiDifficulty);
         agentObject.SetActive(true);
 
         Debug.Log("StartGameManager: Đã kết nối CaroSearchGameplayAgent với thuật toán Alpha-Beta.");
